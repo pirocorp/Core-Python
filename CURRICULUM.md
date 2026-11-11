@@ -33,6 +33,7 @@
 5. Treat language guarantees and CPython-specific implementation details separately.
 6. Use normal ```python``` blocks for copyable Python code. Show expected results separately. Avoid interactive-console transcript fences that can render poorly.
 7. Keep lesson headings focused on **technical subjects**, without attribution to the original materials.
+8. Do not include development-progress checklists, editing history, or reviewer-approval status in learner-facing lesson documentation; track those in GitHub PRs/issues instead.
 
 ## Implementation decisions
 
@@ -54,7 +55,3 @@
 - [Python documentation](https://docs.python.org/3/)
 - [CPython free-threading HOWTO](https://docs.python.org/3/howto/free-threading-python.html)
 - [Python threading reference](https://docs.python.org/3/library/threading.html)
-
-## Progress
-
-Lesson 01 includes working examples, tests and a guided walkthrough, but remains **open for learner questions**. Lessons 02–09 are outlines awaiting their full implementations.
