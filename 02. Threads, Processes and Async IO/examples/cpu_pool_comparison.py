@@ -47,9 +47,13 @@ def run_processes(iterations: int, jobs: int) -> list[int]:
     # get_context("spawn") returns a context for the fresh-interpreter start method.
     # It does NOT start any worker yet and avoids relying on Unix 'fork'.
     context = multiprocessing.get_context("spawn")
-    # mp_context selects the method that ProcessPoolExecutor uses for workers.
+    # Create a pool with up to 'jobs' separate worker processes.
+    # mp_context=context makes it use the selected "spawn" start method.
+    # 'as executor' receives the pool object returned by __enter__().
+    # Leaving 'with' waits for submitted work and shuts down the pool.
     with ProcessPoolExecutor(max_workers=jobs, mp_context=context) as executor:
-        # Arguments and return values cross process boundaries via serialization.
+        # map() submits calls; results cross process boundaries via serialization.
+        # list() collects them in input order (the workers may finish out of order).
         return list(executor.map(cpu_work, [iterations] * jobs))
 
 
