@@ -208,14 +208,22 @@ def run_processes() -> list[int]:
     # get_context("spawn") chooses how later worker processes are started.
     # It does NOT start a process here; "spawn" means a fresh interpreter.
     context = multiprocessing.get_context("spawn")
-    # mp_context tells the process pool to use that start method.
+    # Create a pool that can run up to 2 worker processes at a time.
+    # mp_context=context tells the pool to start workers with "spawn".
+    # 'as executor' binds the result of __enter__() to the variable.
+    # 'with' automatically waits for submitted tasks and shuts down the pool.
     with ProcessPoolExecutor(max_workers=2, mp_context=context) as executor:
+        # map() submits work for both inputs; list() collects results in input order.
         return list(executor.map(cpu_work, [500_000, 500_000]))
 
 # Needed when using 'spawn': worker processes import this module.
 if __name__ == "__main__":
     print(run_processes())
 ```
+
+**Python syntax note — `with ProcessPoolExecutor(...) as executor:`:** `ProcessPoolExecutor` constructs a **process-pool manager**, not an ordinary OS thread. `max_workers=2` sets a limit of **two worker processes**; it does not mean only two tasks can ever be submitted. `mp_context=context` tells the pool to use the `spawn` configuration selected above. The `with` statement calls the pool's `__enter__()`, and `as executor` binds its result (for this class, **the pool object itself**) to the name `executor`. Tasks are submitted when `executor.map(...)` is used; constructing the executor does **not necessarily** start all workers immediately. The process pool serializes submitted inputs/results across separate process memory spaces. When control exits the `with` block, including during an exception, `__exit__()` calls `shutdown(wait=True)` to wait for submitted work and release pool resources. This is **not** a guarantee that all submitted work is forcibly canceled on an exception.
+
+**How `executor.map(...)` works here:** `executor.map(cpu_work, [500_000, 500_000])` submits two calls to the module-level `cpu_work` function. It provides an iterator of their return values **in input order**. `list(...)` exhausts that iterator and creates a `list[int]`. Compare the existing C# `Process.Start` example below only at the **OS-process boundary** level; it does not supply Python's pool, argument serialization or result collection.
 
 **Python syntax note — `multiprocessing.get_context("spawn")`:** `get_context(...)` returns a *multiprocessing context* configured with the named process start method. The string `"spawn"` selects a model where new worker processes start fresh Python interpreters instead of inheriting the parent process's running interpreter state. **This call does not itself launch any process.** The context is passed via `mp_context=context` so that `ProcessPoolExecutor` can use it when it starts workers. Submitted functions and their arguments must be suitable for process-to-process serialization (typically `pickle`); each worker has its own memory. Explicit `spawn` gives the example a consistent start method rather than relying on OS- and Python-version-dependent defaults.
 
