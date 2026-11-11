@@ -1,6 +1,5 @@
 # CPython Memory Model and the GIL
 
-> **Status:** Working lesson under review; explanations are updated in place as clarifications arise.
 > **Audience:** senior developers with experience in object-oriented and concurrent programming; no introduction to basic programming syntax.
 
 ## Learning outcomes
