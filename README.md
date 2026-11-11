@@ -12,12 +12,12 @@ Start with [01 — CPython Memory Model and the GIL](lessons/01-cpython-memory-a
 
 - Assume professional experience with software engineering, object-oriented design, testing, and concurrent systems (C#/.NET comparisons may be used).
 - Explain **Python-specific semantics and implementation trade-offs**, not generic definitions of classes, loops, or inheritance.
-- Develop a self-contained learning path from the supplied examples and supporting documentation. Retain reference examples alongside verified corrections without embedding presentation attributions.
-- Separate **source material**, **corrections/updates**, and **new exercises**; do not silently present modern additions as part of the original examples.
+- Develop self-contained lessons from the supplied working material, retaining **only learner-facing, verified code and explanations** in the repository.
+- Keep preparatory/source snippets outside the repository. Published lessons must be self-contained and include corrected executable examples, tests, and documented behavior.
 - As we discuss snippets, record the questions and answers inside the relevant lesson and add runnable, testable examples.
 
 ## Current status
 
-The files under `lessons/` are **topic declarations**, not completed lessons. Example code from the initial materials will be transcribed and validated **topic by topic**, starting with the GIL. Questions-and-answers sections are placeholders until actual discussions.
+The files under `lessons/` are **topic declarations**, not completed lessons. Lesson code will be written and validated **topic by topic**, starting with the GIL. Questions-and-answers sections are placeholders until actual discussions.
 
 The older `00. Hello World/` and `01. ReadText/` folders remain unchanged during this initial planning PR. They can be retired separately after review.

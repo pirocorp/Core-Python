@@ -20,7 +20,7 @@
 ## Quality standard for each lesson
 
 1. Assume programming experience, **not prior Python experience**. Define runtime-specific vocabulary (GIL, MRO, descriptors, etc.) before relying on it.
-2. Preserve supplied reference code separately, identify mistakes, and provide a **verified, runnable** implementation. Distinguish reference examples from additional demonstrations.
+2. Source/reference snippets are **preparation material only**; do **not** commit them to the repository. Publish only corrected, verified runnable examples, explanations, exercises, and expected outputs.
 3. Include Python-specific semantics, practical engineering comparisons with C#/.NET when helpful, pitfalls, expected output, validation commands, tests, and exercises.
 4. Record the learner's real clarification questions and technically checked answers in the relevant lesson.
 5. Treat language guarantees and CPython-specific implementation details separately.
@@ -30,9 +30,9 @@
 ## Implementation decisions
 
 - **GIL and memory management:** contrast ordinary GIL-enabled CPython with optional free-threading (3.13+) and explain reference-counting, cyclic garbage collection and application synchronization.
-- **Factorial:** original reference code reads a local accumulator before assigning it; preserve the original and correct the executable exercise. A nominal thread-switch interval does not guarantee equal CPU time or prevent starvation.
-- **Concurrency:** add independently labeled comparisons of CPU-heavy and I/O-heavy workloads without attributing newly written examples to the supplied materials.
-- **Decorators:** preserve the original decorator structure, then add an explicitly labeled modern variant using `functools.wraps`.
+- **Factorial:** use a correctly initialized accumulator and a defined policy for negative inputs. A nominal thread-switch interval does not guarantee equal CPU time or prevent starvation.
+- **Concurrency:** compare CPU-heavy and I/O-heavy workloads using verified Python exercises, not preliminary notes.
+- **Decorators:** teach decorator factories and wrappers, including `functools.wraps`, with validated examples.
 - **OOP:** deepen method-resolution order, duck typing, abstract base classes and property behavior beyond generic OOP definitions.
 - **Dataclasses:** included in the initial outline only as a possible extension; develop as its own topic if appropriate.
 

@@ -130,7 +130,7 @@ In .NET, two CPU-heavy tasks dispatched to separate thread-pool threads may run 
 
 ## Object identity and reference counting
 
-The original reference example is preserved as a transcript in [source_examples/refcount_original.txt](source_examples/refcount_original.txt). Here is its **copyable Python version**:
+Try this **copyable Python example**:
 
 ```python
 import sys
@@ -190,25 +190,9 @@ Calling this “single-threaded execution” without qualification is imprecise:
 
 ## Factorial example — CPU-bound threads
 
-### A faithful transcription (contains a bug)
+### Runnable factorial implementation
 
-The original reference snippet is stored in [source_examples/factorial_original.txt](source_examples/factorial_original.txt), unchanged:
-
-```python
-def factorial(num):
-    if num < 0:
-        return 0
-    elif num == 0:
-        return 1
-    else:
-        for i in range(1,num + 1):
-            factorial = factorial*i
-        return factorial
-```
-
-For a positive input, it raises **`UnboundLocalError`** because the *local* variable `factorial` is read before assignment. The source also returns 0 for negative integers, whereas factorial is not defined for negative integers. These are defects of the reference code, **not GIL demonstrations**.
-
-### Runnable, corrected code
+The accumulator must be initialized before multiplication. For negative inputs, use `ValueError` because factorial is not defined for negative integers. This version is the one used in the runnable example and tests:
 
 [examples/factorial_threads.py](examples/factorial_threads.py) starts with:
 
@@ -222,7 +206,7 @@ def factorial(num: int) -> int:
     return result
 ```
 
-It additionally executes **two identical factorial workloads** sequentially and with **two Python threads**, measuring wall-clock time via `time.perf_counter()` and verifying equal results. The reference example **does not provide** the thread-launching code: this additional exercise is designed to test the GIL behavior.
+The exercise executes **two identical factorial workloads** sequentially and with **two Python threads**, measuring wall-clock time via `time.perf_counter()` and verifying equal results. This demonstrates how the GIL affects CPU-bound work.
 
 ```bash
 python examples/factorial_threads.py --n 12000 --repeats 3
@@ -251,7 +235,7 @@ C# `Task.Run` can schedule managed CPU work on different thread-pool threads, wh
 
 1. **Aliases:** Predict and execute the `sys.getrefcount(a)` example. Explain why `b = a` does *not* create a copy and why the observed count includes a temporary reference.
 2. **Cycles:** Execute the `reference_cycles.py` example. Explain why reference counting alone is insufficient.
-3. **Debug the reference code:** Copy the original factorial function into a disposable REPL and call `factorial(5)`. Inspect the `UnboundLocalError`, then compare the corrected function's result (`120`) and its negative-input behavior.
+3. **Factorial correctness:** Run `factorial(5)` (expected `120`), `factorial(0)` (expected `1`), and `factorial(-1)` (expected `ValueError`). Explain why `result = 1` is needed before the loop.
 4. **Benchmark:** Run the two-thread experiment at least three times. Record Python version, GIL state and timings; explain why relative duration can fluctuate.
 5. **Validation:** Run the five stdlib unit tests with `python -m unittest discover -s tests -v`.
 6. **Engineering scenario:** A service has 8 CPU cores, expensive Python calculations, and high-volume network requests. Why can you not assume 8 standard CPython threads will parallelize pure-Python calculation? What different concurrency models might you choose for computation and I/O? (A full comparison is Lesson 02.)
@@ -271,7 +255,7 @@ C# `Task.Run` can schedule managed CPU work on different thread-pool threads, wh
 - Assuming the GIL eliminates shared-state races.
 - Interpreting the switch interval as a guaranteed 5 ms round-robin schedule.
 - Treating small benchmark fluctuations as proof of CPU scalability.
-- Confusing a broken reference factorial function with a threading defect.
+- Using an uninitialized accumulator in a factorial implementation and mistaking the exception for a GIL or threading defect.
 
 ## Live walkthrough Q&A
 
@@ -304,8 +288,8 @@ We will add further learner questions and answers as they arise.
 
 ## Progress
 
-- [x] Original reference examples preserved separately.
-- [x] Broken reference factorial explained and corrected independently.
+- [x] Only learner-facing examples kept; preparatory source snippets excluded.
+- [x] Factorial implementation validated with correct accumulator initialization and input handling.
 - [x] Reference counting, reference cycle, and CPU-thread code tested on CPython 3.13.5.
 - [x] Five automated stdlib unit tests; hands-on exercises.
 - [x] Beginner-to-Python explanation of the GIL added in response to learner feedback, with an I/O-wait demonstration.

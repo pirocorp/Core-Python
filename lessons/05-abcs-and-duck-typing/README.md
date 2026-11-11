@@ -10,11 +10,11 @@
 
 `Shape(ABC)` with abstract `area`/`perimeter` and `Circle`; `PaymentGateway(ABC)` with credit-card/PayPal implementations.
 
-Original reference examples should be preserved independently of our corrections and extensions. Before any referenced snippet is presented as runnable, it must be transcribed accurately, checked for errors, and exercised locally. **This module is an outline and does not yet claim to contain tested runnable examples.**
+Examples must be checked for errors, made independently runnable, and validated with tests. **This module is an outline and does not yet claim to contain tested runnable examples.**
 
 ## Senior-level comparisons and pitfalls
 
-A C# `interface` does not translate one-to-one into Python `ABC`; the reference examples use ABC-based contracts, not a separate Python `interface` keyword.
+A C# `interface` does not translate one-to-one into Python `ABC`; use ABC-based contracts, not a separate Python `interface` keyword.
 
 ## Initial questions to investigate
 
@@ -26,7 +26,7 @@ Questions from the learner, technically verified answers, edge cases, and any co
 
 ## Acceptance criteria for the finished lesson
 
-- [ ] Preserve the original reference example (or explicitly state that there is none).
+- [ ] Include a clear, validated learner-facing example (or explicitly note that none is available yet).
 - [ ] Include a separate verified, executable version and expected result.
 - [ ] Document Python-specific runtime behavior and failure modes.
 - [ ] Include at least one meaningful hands-on exercise and validation steps.
