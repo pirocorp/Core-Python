@@ -44,8 +44,10 @@ def run_threads(iterations: int, jobs: int) -> list[int]:
 def run_processes(iterations: int, jobs: int) -> list[int]:
     validate(iterations, jobs)
     # Each worker is a separate process with its own interpreter and memory.
-    # 'spawn' starts a fresh interpreter; it avoids relying on Unix 'fork'.
+    # get_context("spawn") returns a context for the fresh-interpreter start method.
+    # It does NOT start any worker yet and avoids relying on Unix 'fork'.
     context = multiprocessing.get_context("spawn")
+    # mp_context selects the method that ProcessPoolExecutor uses for workers.
     with ProcessPoolExecutor(max_workers=jobs, mp_context=context) as executor:
         # Arguments and return values cross process boundaries via serialization.
         return list(executor.map(cpu_work, [iterations] * jobs))
