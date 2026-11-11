@@ -94,6 +94,8 @@ def main() -> None:
     print("Compare multiple runs; process startup and CPU quotas affect timings.")
 
 
-# Mandatory for spawn-based multiprocessing: prevents recursive worker creation.
+# __name__ is "__main__" when run directly; when imported it is the module name.
+# The check prevents spawned workers importing this module from running main()
+# and recursively starting more pools. The functions above stay importable.
 if __name__ == "__main__":
-    main()
+    main()  # Run the CLI comparison only in the entry-point process.
