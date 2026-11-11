@@ -8,7 +8,7 @@ See [CURRICULUM.md](CURRICULUM.md) for the nine initial topics and their Python-
 
 ### Published lessons (repository root)
 
-1. [CPython Memory Model and the GIL](01. CPython Memory Model and the GIL/README.md) — runnable examples, tests, diagram, and explanations; currently under learner review.
+1. [CPython Memory Model and the GIL](01. CPython Memory Model and the GIL/README.md) — complete lesson with runnable examples, tests, diagram, and explanations.
 
 The **root of this repository** contains each developed course lesson as its own numbered, human-readable directory. Lessons awaiting implementation remain in `lessons/` as outlines. This makes practical lessons visible immediately in GitHub's file browser.
 
@@ -22,6 +22,6 @@ The **root of this repository** contains each developed course lesson as its own
 
 ## Current status
 
-Directories under `lessons/` are **outlines for future topics**. Developed lessons live at the root; Lesson 01 is available for study and remains open to refinements and additional questions.
+Directories under `lessons/` are **outlines for future topics**. Developed lessons live at the root; Lesson 01 is complete and available for study.
 
 The repository contains only the senior-level course; earlier introductory example projects have been retired.
