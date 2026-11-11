@@ -21,8 +21,10 @@ async def bad_blocking(index: int, delay: float) -> str:
 
 
 async def bridge_blocking(index: int, delay: float) -> str:
-    # to_thread() runs a synchronous/blocking callable in a worker thread.
-    # 'await' yields control while that thread waits.
+    # A worker thread is a separate OS thread from the asyncio event-loop thread.
+    # to_thread() uses the loop's thread pool to run blocking sleep(delay) there.
+    # 'sleep' is a function reference, not an immediate call; 'delay' is its argument.
+    # 'await' yields control to the event loop until the worker completes.
     await asyncio.to_thread(sleep, delay)
     return f"request-{index}:ok"
 
