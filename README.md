@@ -18,7 +18,7 @@ The **root of this repository** contains each developed course lesson as its own
 - Explain **Python-specific semantics and implementation trade-offs**, not generic definitions of classes, loops, or inheritance.
 - Develop self-contained lessons from the supplied working material, retaining **only learner-facing, verified code and explanations** in the repository.
 - Keep preparatory/source snippets outside the repository. Published lessons must be self-contained and include corrected executable examples, tests, and documented behavior.
-- As we discuss snippets, record the questions and answers inside the relevant lesson and add runnable, testable examples.
+- As we review code, incorporate useful clarifications directly into the relevant explanation or example; avoid repetitive Q&A transcripts and editorial notes.
 
 ## Current status
 

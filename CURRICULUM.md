@@ -29,7 +29,7 @@
 1. Assume programming experience, **not prior Python experience**. Define runtime-specific vocabulary (GIL, MRO, descriptors, etc.) before relying on it.
 2. Source/reference snippets are **preparation material only**; do **not** commit them to the repository. Publish only corrected, verified runnable examples, explanations, exercises, and expected outputs.
 3. Include Python-specific semantics, practical engineering comparisons with C#/.NET when helpful, pitfalls, expected output, validation commands, tests, and exercises.
-4. Record the learner's real clarification questions and technically checked answers in the relevant lesson.
+4. Integrate technically verified clarifications into the relevant explanation, executable code or exercise. Do not add a separate Q&A section when it merely repeats the lesson or documents editing decisions.
 5. Treat language guarantees and CPython-specific implementation details separately.
 6. Use normal ```python``` blocks for copyable Python code. Show expected results separately. Avoid interactive-console transcript fences that can render poorly.
 7. Keep lesson headings focused on **technical subjects**, without attribution to the original materials.
