@@ -17,11 +17,99 @@ After this lesson you should understand CPython object identity, aliasing and re
 python --version
 python examples/reference_count.py
 python examples/reference_cycles.py
+python examples/io_wait_threads.py --seconds 0.4
 python examples/factorial_threads.py --n 12000 --repeats 3
 python -m unittest discover -s tests -v
 ```
 
 The alias check should print `True`, an unreachable reference cycle should disappear after `gc.collect()`, the factorial results must match, and all **five unit tests** should pass. Reference-count values, thread durations and GC statistics can vary. Code has been checked on CPython 3.13.5.
+
+## Start here — what is the GIL?
+
+**GIL** stands for **Global Interpreter Lock**. It is a synchronization mechanism in **CPython**, the most widely used implementation of the Python language. You can be an experienced C# or Java developer and still be unfamiliar with it: the GIL is a **Python-runtime implementation detail**, not a general programming concept or a Python language keyword.
+
+### 1. Python vs. CPython
+
+- **Python** defines the language you write: functions, classes, objects, exceptions, and so on.
+- **CPython** is a particular implementation that compiles Python source into bytecode and executes it using an interpreter. Other implementations may use different execution models.
+- **An OS thread** is a real thread scheduled by the operating system. Python's `threading.Thread` can create multiple such threads in one process.
+- **The GIL**, in the *standard GIL-enabled CPython interpreter*, controls which thread may currently execute Python bytecode and interact with Python objects through the interpreter's normal C API.
+
+**The important distinction:** you can create ten Python threads, but in a standard GIL-enabled CPython interpreter **only one of them can execute Python bytecode at any given instant**. The threads still exist, can be scheduled independently by the OS, and can overlap while waiting for I/O.
+
+### 2. Why does CPython have a GIL?
+
+CPython traditionally manages most object lifetimes using **reference counts**. When a new reference to an object appears, its count is increased; when a reference disappears, its count is decreased. In a multithreaded runtime, two threads could otherwise attempt to update the same object's internal state at the same time.
+
+Traditional CPython's GIL provides a coarse-grained way to protect the interpreter's shared object model, including these reference-count operations. This simplifies the runtime implementation, but it also serializes execution of Python bytecode across threads in the same GIL-enabled interpreter.
+
+Do **not** conclude that every memory-management operation needs the GIL in every Python implementation. Free-threaded CPython replaces the coarse lock with other synchronization and reference-management techniques.
+
+### 3. What happens when two threads run?
+
+A simplified **CPU-bound** example:
+
+```text
+Time ------------------------------------------------------------>
+
+Thread A: [executes Python] [waiting]         [executes Python]
+Thread B: [waiting]         [executes Python] [waiting]
+GIL:       held by A        held by B         held by A
+```
+
+1. Thread A holds the GIL and executes Python code.
+2. Thread B exists but cannot execute Python bytecode until it obtains the GIL.
+3. CPython can switch which thread holds the lock, so execution **interleaves**.
+4. Interleaving means both tasks make progress over time; it does **not** mean their Python bytecode is running simultaneously on two CPU cores.
+
+This diagram is conceptual, **not** an exact schedule. The interpreter's thread-switch interval (often 5 ms) is only a target for checking switches, not a guaranteed time slice, fairness rule, or limit on starvation.
+
+### 4. CPU-bound versus I/O-bound: why the difference matters
+
+**CPU-bound** means the code is busy doing computations (e.g., a pure-Python factorial loop). The threads compete to execute Python bytecode, so adding threads usually does **not** make the CPU work scale across cores in standard CPython. Run [the factorial comparison](examples/factorial_threads.py):
+
+```bash
+python examples/factorial_threads.py --n 12000 --repeats 3
+```
+
+It runs **two CPU-heavy workloads** once sequentially and once in two threads. Both versions must compute the same results; execution times vary, and two threads may be slightly slower.
+
+**I/O-bound** means the program spends substantial time **waiting** for work outside the CPU—for example, a network reply, disk read, or database result. During blocking I/O, CPython can **release the GIL**, so another thread can execute Python code. For a small controlled example, [`io_wait_threads.py`](examples/io_wait_threads.py) uses `time.sleep` to *simulate waiting*, not to perform real networking:
+
+```bash
+python examples/io_wait_threads.py --seconds 0.4
+```
+
+Two sequential waits take approximately `0.8s` of wall-clock time; overlapping waits in two threads take approximately `0.4s` **plus scheduling overhead**, if the machine is otherwise idle. These are illustrative expectations, **not fixed timings or pass/fail thresholds**. The speedup comes from **overlapping waits**, not from executing two Python computations simultaneously.
+
+**Native exception:** some libraries written in C/C++ release the GIL around expensive native computations. This can permit actual CPU parallelism inside such native code; do not generalize the pure-Python rule to every package.
+
+### 5. Three things the GIL does *not* guarantee
+
+- **It does not make your business logic thread-safe.** An operation such as “check balance, then debit” spans multiple actions and needs appropriate coordination. Shared state still requires application-level synchronization such as `threading.Lock`.
+- **It does not mean Python has only one OS thread.** Threads are real; the restriction concerns Python bytecode execution in an ordinary GIL-enabled interpreter.
+- **It does not apply as one lock across all Python processes.** Separate processes have separate interpreters and can execute Python work on multiple cores. We compare `threading`, `multiprocessing` and `asyncio` in Lesson 02; `asyncio` helps with I/O concurrency, not automatic CPU parallelism.
+
+### 6. What changed in modern Python?
+
+From **Python 3.13**, CPython also offers an **optional free-threaded build** that can execute Python code on multiple threads in parallel without the GIL. The ordinary CPython build still uses the GIL; free threading is not something that automatically turns on when you call `threading.Thread`. Some incompatible native extensions can cause a free-threaded interpreter to re-enable the GIL.
+
+Check the interpreter you are using:
+
+```bash
+python -VV
+python -c "import sys; print(getattr(sys, '_is_gil_enabled', lambda: 'not available before CPython 3.13')())"
+```
+
+On CPython 3.13+, `True` means the GIL is **currently enabled** and `False` means it is **currently disabled**. The API is not available on all earlier Python versions or other implementations. Even with the GIL disabled, race conditions in **your own code** do not disappear: carefully synchronize shared mutable state.
+
+### 7. Comparison with your C#/.NET experience
+
+In .NET, two CPU-heavy tasks dispatched to separate thread-pool threads may run on different processor cores simultaneously. With ordinary CPython, two `threading.Thread` instances executing pure Python bytecode **do not automatically gain that CPU parallelism**. It is therefore important to choose the right Python execution model for the workload, rather than translating `Task.Run` or `Parallel.ForEach` mechanically.
+
+**Takeaway:** GIL is a runtime lock that trades simpler interpreter object safety for reduced *pure-Python thread-based CPU parallelism*. It does **not** prevent useful thread-based I/O concurrency, and it does **not** replace your own locks.
+
+---
 
 ## Slide 7 — GIL and reference counting
 
@@ -161,7 +249,11 @@ C# `Task.Run` can schedule managed CPU work on different thread-pool threads, wh
 
 ## Live walkthrough Q&A
 
-**Not yet populated.** We will save real learner questions, answers, and links to relevant code here as they arise, without inventing questions.
+**Question (from learner feedback):** An experienced software developer may be completely new to Python. What is the GIL, and why should they know about it?
+
+**Answer:** Start with the [GIL introduction](#start-here--what-is-the-gil) above. The GIL is a CPython interpreter lock that prevents simultaneous execution of Python bytecode by multiple threads in the ordinary build, but lets threads overlap while waiting on I/O. See [the CPU-heavy example](examples/factorial_threads.py) and [the waiting example](examples/io_wait_threads.py) for the practical difference. It is not a substitute for application-level thread-safety.
+
+We will add more of the learner's actual questions and answers as they arise.
 
 ## Documentation (verified against current CPython)
 
@@ -178,5 +270,6 @@ C# `Task.Run` can schedule managed CPU work on different thread-pool threads, wh
 - [x] Broken slide 9 factorial explained and corrected independently.
 - [x] Reference counting, reference cycle, and CPU-thread code tested on CPython 3.13.5.
 - [x] Five automated stdlib unit tests; hands-on exercises.
+- [x] Beginner-to-Python explanation of the GIL added in response to learner feedback, with an I/O-wait demonstration.
 - [ ] Real user questions and detailed answers recorded after our walkthrough.
 - [ ] User-approved lesson completion.
