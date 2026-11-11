@@ -101,11 +101,15 @@ import threading
 
 balance_lock = threading.Lock()
 
-# In a real service, the check and update must be in the same critical section.
-with balance_lock:  # Acquires and releases this lock automatically.
+# 'with' uses the lock's context manager protocol:
+# it acquires the lock on entry and always releases it on exit.
+# The check and update must run together inside the critical section.
+with balance_lock:
     if balance >= amount:
         balance -= amount
 ```
+
+**Python syntax note — `with balance_lock:`:** `with` does not create a lock. It enters the context managed by the existing `threading.Lock` object: `__enter__()` acquires the lock before executing the indented block, and `__exit__()` releases it afterward, including when an exception occurs. For this specific lock, the behavior is equivalent to `balance_lock.acquire()` followed by a `try/finally` that calls `balance_lock.release()`. This is similar to C# `lock (balanceLock) { ... }`. Not every `with` statement acquires a lock: context managers can also manage files, transactions, pools, and other resources. See Lesson 03 for the `__enter__`/`__exit__` protocol in depth.
 
 Here `balance` and `amount` are assumed to already exist: this is a **short illustrative fragment**, not a standalone bank-account implementation. In a real financial system, a local thread lock does not coordinate **different processes or machines**; database transactions or distributed coordination may be required.
 
