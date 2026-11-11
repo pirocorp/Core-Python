@@ -1,7 +1,6 @@
 # 05 — Abstract Base Classes and Interface-Like Contracts
 
 > **Status:** Outline only — awaiting code transcription, validation, and question-driven expansion.  
-> **Source:** *Python – Syntax/OOP and ML*, slide(s) 19–21.
 
 ## Why this matters to a senior engineer
 
@@ -11,11 +10,11 @@
 
 `Shape(ABC)` with abstract `area`/`perimeter` and `Circle`; `PaymentGateway(ABC)` with credit-card/PayPal implementations.
 
-The slide example(s) must be preserved as attributable source material. Before a snippet is presented as runnable, it must be transcribed accurately, checked for errors, and exercised locally. **No runnable code has been asserted for this module in this initial planning pass.**
+Examples must be checked for errors, made independently runnable, and validated with tests. **This module is an outline and does not yet claim to contain tested runnable examples.**
 
 ## Senior-level comparisons and pitfalls
 
-A C# `interface` does not translate one-to-one into Python `ABC`; the slides present ABC-based contracts, not a separate Python `interface` keyword.
+A C# `interface` does not translate one-to-one into Python `ABC`; use ABC-based contracts, not a separate Python `interface` keyword.
 
 ## Initial questions to investigate
 
@@ -27,7 +26,7 @@ Questions from the learner, technically verified answers, edge cases, and any co
 
 ## Acceptance criteria for the finished lesson
 
-- [ ] Preserve the original slide example (or explicitly state that there is none).
+- [ ] Include a clear, validated learner-facing example (or explicitly note that none is available yet).
 - [ ] Include a separate verified, executable version and expected result.
 - [ ] Document Python-specific runtime behavior and failure modes.
 - [ ] Include at least one meaningful hands-on exercise and validation steps.
