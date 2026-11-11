@@ -6,7 +6,11 @@ A Python-focused learning path for experienced software engineers. **Not** a pro
 
 See [CURRICULUM.md](CURRICULUM.md) for the nine initial topics and their Python-specific learning goals.
 
-Start with [01 — CPython Memory Model and the GIL](lessons/01-cpython-memory-and-gil/README.md). Later topics cover concurrency models, context managers, decorators, and Python-specific object-oriented design.
+### Published lessons (repository root)
+
+1. [CPython Memory Model and the GIL](01. CPython Memory Model and the GIL/README.md) — runnable examples, tests, diagram, and explanations; currently under learner review.
+
+The **root of this repository** contains each developed course lesson as its own numbered, human-readable directory. Lessons awaiting implementation remain in `lessons/` as outlines. This makes practical lessons visible immediately in GitHub's file browser.
 
 ## Learning approach
 
@@ -18,6 +22,6 @@ Start with [01 — CPython Memory Model and the GIL](lessons/01-cpython-memory-a
 
 ## Current status
 
-The files under `lessons/` are **topic declarations**, not completed lessons. Lesson code will be written and validated **topic by topic**, starting with the GIL. Questions-and-answers sections are placeholders until actual discussions.
+Directories under `lessons/` are **outlines for future topics**. Developed lessons live at the root; Lesson 01 is available for study and remains open to refinements and additional questions.
 
-The older `00. Hello World/` and `01. ReadText/` folders remain unchanged during this initial planning PR. They can be retired separately after review.
+The older `00. Hello World/` and `01. ReadText/` folders are legacy projects, not part of the senior-level curriculum. They remain unchanged pending a separate cleanup.
