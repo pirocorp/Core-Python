@@ -441,6 +441,94 @@ These C# `async Task<string>` methods normally begin executing when called, whil
 
 ## 7. The dangerous mistake: blocking the event loop
 
+### What is an event loop?
+
+An **event loop** is the scheduler at the heart of an `asyncio` application. It **runs ready coroutine tasks and callbacks**, watches for I/O readiness and timer completions, and **resumes suspended tasks** when the operation they were awaiting can make progress. Most ordinary `asyncio` applications have one event loop running in **one OS thread**; this model provides *concurrency*, not automatic multi-core CPU *parallelism*.
+
+It is conceptually similar to the JavaScript **event loop** in a browser or Node.js: asynchronous operations do not require one blocked thread per request. The program registers work, yields during asynchronous waits, and continues it when the relevant event or timer becomes ready.
+
+**The key word is cooperative:** an `asyncio.Task` executes Python code until it completes, raises, or **suspends at an await that is not ready**. The event loop does not interrupt arbitrary synchronous Python statements. If a task executes `time.sleep()`, a long synchronous loop, or blocking database/network I/O directly on the event-loop thread, **other tasks on that loop cannot run** while it is blocked.
+
+### How Python's event loop works, step by step
+
+1. `asyncio.run(main())` creates and runs an event loop for the entry-point coroutine, then performs cleanup when finished. Use it at the **application boundary**, not inside an already running event loop.
+2. `asyncio.create_task(coroutine)` registers a coroutine to run as a Task on the loop. Calling an `async def` function **without** awaiting/scheduling it only creates a coroutine object.
+3. The loop runs a ready Task. At `await asyncio.sleep(0.2)`, that Task **suspends**, and the loop can execute another ready Task instead.
+4. While tasks wait, the loop arranges timers and monitors supported asynchronous I/O. When the wait completes, the Task becomes runnable again and later resumes.
+5. If there is no runnable work, the loop can **wait for the next I/O event or timer** rather than continuously spinning the CPU. A Task that never suspends can starve other tasks.
+
+```mermaid
+flowchart TD
+    A["asyncio.run(main())"] --> B["Event loop: choose a ready Task"]
+    B --> C{"Task awaits unfinished I/O or timer?"}
+    C -->|"Yes"| D["Suspend Task; track awaited operation"]
+    D --> E["Run other ready Tasks or wait for I/O"]
+    E --> F{"I/O or timer completed?"}
+    F -->|"Yes"| G["Make suspended Task ready"]
+    F -->|"Not yet"| E
+    G --> B
+    C -->|"No"| H["Continue synchronous Python code / finish"]
+    H --> B
+```
+
+*Conceptual scheduler diagram, not a precise implementation trace or a promise of fairness/order.*
+
+### Compare JavaScript and Python
+
+In JavaScript, a common event-loop-based async wait looks like this:
+
+```javascript
+// Works in modern browsers and Node.js.
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+async function request(label) {
+    await delay(200); // Yields: the JS event loop can run other work.
+    return `request-${label}:ok`;
+}
+
+async function main() {
+    const [first, second] = await Promise.all([
+        request("A"),
+        request("B")
+    ]);
+    console.log(first, second);
+}
+
+main().catch(console.error);
+```
+
+The comparable Python code is:
+
+```python
+import asyncio
+
+async def request(label: str) -> str:
+    await asyncio.sleep(0.2)  # Yield to the Python event loop.
+    return f"request-{label}:ok"
+
+async def main() -> None:
+    # gather() schedules the coroutines and collects their results in input order.
+    first, second = await asyncio.gather(request("A"), request("B"))
+    print(first, second)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+Both examples print `request-A:ok request-B:ok` after about **0.2 seconds plus overhead** (rather than 0.4 seconds), because the waits overlap.
+
+| Concept | JavaScript (browser/Node.js) | Python `asyncio` |
+|---|---|---|
+| Async function | `async function request()` | `async def request():` |
+| Await a non-blocking delay | `await delay(200)` using `setTimeout` | `await asyncio.sleep(0.2)` |
+| Wait for independent operations | `await Promise.all([...])` | `await asyncio.gather(...)` (different failure/cancellation behavior) |
+| Schedule multiple operations | Calling a JS async function normally **starts** it immediately | Calling a Python coroutine function only **creates a coroutine**; use `await`, `gather`, or `create_task` to run it |
+| Scheduling details | Browser task queue and **microtask queue** (Promise continuations) | `asyncio` Tasks, Futures, callbacks, ready work, I/O polling and timers |
+
+**They are similar, not identical.** JavaScript browser event loops have distinct **task and microtask queues**, where Promise continuations run as microtasks. Python `asyncio` does **not** expose the same JavaScript microtask-queue rules; do not assume identical callback ordering. Likewise, .NET `async`/`await` is an asynchronous programming model, but does **not** imply one universal event loop: continuations depend on synchronization contexts, task schedulers, I/O completion, and the hosting environment.
+
+### Why blocking the event loop is dangerous
+
 [`examples/asyncio_blocking.py`](examples/asyncio_blocking.py) demonstrates the difference between blocking inside a coroutine and moving synchronous/blocking work to a thread.
 
 ```python
@@ -448,16 +536,31 @@ import asyncio
 import time
 
 async def wrong() -> None:
-    time.sleep(0.2)  # Blocks the event-loop thread; other tasks cannot progress.
+    time.sleep(0.2)  # BAD: blocks the event-loop thread for 0.2s.
 
-async def better() -> None:
-    # Run this synchronous blocking function in a worker thread.
+async def good_async() -> None:
+    await asyncio.sleep(0.2)  # GOOD: suspends the coroutine, not the loop.
+
+async def bridge_blocking_library() -> None:
+    # A synchronous library call runs in a worker thread instead of on the loop.
     await asyncio.to_thread(time.sleep, 0.2)
 ```
+
+Even if `time.sleep()` **releases the CPython GIL**, it still blocks the **specific OS thread running the event loop**. Releasing the GIL permits *other OS threads* to execute; it does not make the blocked event-loop thread able to schedule its pending `asyncio` tasks.
+
+Run the complete, executable demo from this lesson directory:
+
+```bash
+python examples/asyncio_blocking.py --requests 3 --delay 0.2
+```
+
+With three concurrent-looking tasks, the bad version using `time.sleep(0.2)` can take about **0.6s** because each task blocks the loop. The `asyncio.to_thread()` version can take about **0.2s plus overhead** because the blocking waits happen in worker threads. These are **illustrative timings**, never unit-test assertions; the demo verifies the results match.
 
 For blocking **I/O**, `asyncio.to_thread()` can be a useful bridge when no native async API exists. On standard GIL-enabled CPython it does **not** make an ordinary pure-Python CPU loop multi-core parallel. Cancellation of the awaiting task also does **not** forcibly kill already-running code in the worker thread.
 
 Use true asynchronous APIs (`await`-enabled drivers) when available; use the bridge for unavoidable blocking calls.
+
+**Further reading:** [Python — Event Loop](https://docs.python.org/3/library/asyncio-eventloop.html), [Python — Coroutines and Tasks](https://docs.python.org/3/library/asyncio-task.html), [MDN — JavaScript execution model](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Execution_model), [MDN — JavaScript microtasks](https://developer.mozilla.org/en-US/docs/Web/API/HTML_DOM_API/Microtask_guide).
 
 ## 8. Production engineering considerations
 
