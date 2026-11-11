@@ -496,12 +496,15 @@ sequenceDiagram
     B-->>L: await asyncio.sleep(0.2) (yield)
     L->>T: Register B timer
     Note over L,T: Loop can run other ready work or wait for readiness
-    T-->>L: Timers become ready
+    T-->>L: Task A timer ready
     L->>A: Resume A
     A-->>L: Return result A
+    L-->>M: First await completes (result A)
+    M-->>L: await Task B (if still pending)
+    T-->>L: Task B timer ready
     L->>B: Resume B
     B-->>L: Return result B
-    L-->>M: Resume main with completed task results
+    L-->>M: Second await completes (result B)
 ```
 
 *Illustrative order only: actual task resumption order is not guaranteed. Both `asyncio.sleep()` calls yield, so their waits can overlap; the event loop does not execute two pieces of Python bytecode simultaneously on the same thread.*
