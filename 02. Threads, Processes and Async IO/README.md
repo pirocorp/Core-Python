@@ -202,6 +202,8 @@ def cpu_work(iterations: int) -> int:
         total += i * i
     return total
 
+# list[int] is a return type hint: a list whose items should be integers.
+# Like C# List<int>, but Python does not enforce this annotation at runtime.
 def run_processes() -> list[int]:
     # 'spawn' starts fresh Python interpreters: portable across major OSes.
     context = multiprocessing.get_context("spawn")
@@ -212,6 +214,19 @@ def run_processes() -> list[int]:
 if __name__ == "__main__":
     print(run_processes())
 ```
+
+**Python syntax note — `list[int]`:** The built-in `list` is an ordered, mutable collection. In a type annotation, `list[int]` means a list of integers, comparable to `List<int>` in C#. In `-> list[int]`, the arrow specifies the **expected return type**. This does not convert values or enforce their types when the function runs; static type checkers can report mismatches. `list[int]` has been supported since Python 3.9.
+
+**C# syntax comparison (return type only, not an equivalent process-pool implementation):**
+
+```csharp
+List<int> GetNumbers()
+{
+    return new List<int> { 10, 20, 30 };
+}
+```
+
+The Python equivalent of that simple collection-returning method would be `def get_numbers() -> list[int]: return [10, 20, 30]`. The process-pool behavior itself is explained separately below.
 
 ### Important implementation rules
 
