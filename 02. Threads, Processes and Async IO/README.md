@@ -395,18 +395,35 @@ The corresponding calls are `await simulated_request()` in a Python coroutine an
 
 Because both `first` and `second` are scheduled before we await either one, the waits can overlap; two simulated 0.2-second operations may complete in approximately 0.2 seconds **plus overhead**, not necessarily 0.4 seconds. Scheduling normally allows the coroutine to start when the event loop next gets a chance to run it; it is **not** an immediate call of its body and **does not launch a new OS thread**. Keep a reference to tasks you want to track and await them, or manage their lifetime with `asyncio.TaskGroup` (discussed below).
 
-**C# comparison — two started asynchronous operations:**
+**C# comparison — sequential awaits versus `Task.WhenAll`:**
 
 ```csharp
-Task<string> first = SimulatedRequestAsync();
-Task<string> second = SimulatedRequestAsync();
-
-// Both C# async method calls have already started before these awaits.
-string firstResult = await first;
-string secondResult = await second;
+// Sequential OPERATIONS: the second method is not called until
+// the first async operation finishes (~400 ms for two 200 ms delays).
+string firstResult = await SimulatedRequestAsync();
+string secondResult = await SimulatedRequestAsync();
 ```
 
-This yields a similar overlap of **asynchronous waits**, but the scheduling semantics differ: a C# `async Task<string>` method typically starts running as soon as it is called, while Python's coroutine body starts after the coroutine is awaited or scheduled. **`asyncio.create_task()` is not the equivalent of C# `Task.Run()`**: it schedules on the event loop rather than automatically offloading CPU work to a thread pool.
+```csharp
+// Concurrent OPERATIONS: both async methods were called first.
+// The two awaits happen sequentially, but the waits overlap (~200 ms).
+Task<string> task1 = SimulatedRequestAsync();
+Task<string> task2 = SimulatedRequestAsync();
+string firstResult = await task1;
+string secondResult = await task2;
+```
+
+```csharp
+// Also concurrent: both async operations are already started.
+// WhenAll waits for the entire group to finish (~200 ms).
+Task<string> task1 = SimulatedRequestAsync();
+Task<string> task2 = SimulatedRequestAsync();
+string[] results = await Task.WhenAll(task1, task2);
+```
+
+The key distinction is **when the asynchronous operations are started**, not whether two `await` expressions appear on separate lines. `Task.WhenAll` does **not** start `task1` and `task2`; it creates an aggregate task that completes after both have completed. It is the clearer choice for **waiting for the full group**, especially if one fails: with `await task1; await task2;`, an exception from `task1` can stop the caller before it reaches `await task2`, even though `task2` keeps running. With `WhenAll`, the returned task represents both completions and can record both errors.
+
+These C# `async Task<string>` methods normally begin executing when called, while Python's coroutine body begins when awaited or scheduled. **`asyncio.create_task()` is not the equivalent of C# `Task.Run()`**: it schedules on the event loop rather than automatically offloading work to a thread pool. The delays shown are illustrative; concurrent I/O is not automatically parallel CPU computation.
 
 ### Python-specific syntax and behavior
 
