@@ -340,13 +340,39 @@ async def main() -> None:
     second = asyncio.create_task(simulated_request())
 
     # Both tasks are scheduled before either result is awaited.
-    # Awaiting a pending Task suspends this coroutine, not the event loop.
+    # print() evaluates its arguments left-to-right: await first, then second.
+    # Awaiting is sequential here, but both tasks can progress concurrently.
     print(await first, await second)
 
 # asyncio.run() starts/manages the event loop at the application boundary.
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+**Python syntax note — `print(await first, await second)` is not sequential task execution:** Python evaluates the arguments of `print()` from left to right, so the code first awaits `first`, then awaits `second`. However, because **both Tasks were already scheduled** with `asyncio.create_task()`, the event loop can run them concurrently. Their simulated waits overlap; two 0.2-second delays normally take about **0.2 seconds plus scheduling overhead**, not 0.4 seconds.
+
+Compare two different execution patterns:
+
+```python
+# Sequential: the second coroutine is not awaited until the first finishes.
+first_result = await simulated_request()
+second_result = await simulated_request()
+print(first_result, second_result)  # ok ok; ~0.4s plus overhead
+
+# Concurrent: first schedule both tasks, then await their results.
+first = asyncio.create_task(simulated_request())
+second = asyncio.create_task(simulated_request())
+print(await first, await second)    # ok ok; ~0.2s plus overhead
+```
+
+If the intention is to **wait for multiple results together** more explicitly, `asyncio.gather` is another option:
+
+```python
+results = await asyncio.gather(simulated_request(), simulated_request())
+print(*results)  # ok ok; '*' unpacks the results as print() arguments
+```
+
+Unlike C# `Task.WhenAll`, Python `gather` has its own exception/cancellation behavior. For structured failure handling, see the `TaskGroup` section below. These timings are **illustrative only**, not correctness requirements.
 
 **C# comparison — asynchronous delay returning a string:**
 
