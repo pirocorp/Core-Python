@@ -1,7 +1,6 @@
 # 01 — CPython Memory Model and the GIL
 
 > **Status:** Working lesson for joint review; learner Q&A not yet recorded.
-> **Source:** *Python – Syntax/OOP and ML*, Teo Parashkevov, **slides 7–9**.
 > **Audience:** senior developers with experience in object-oriented and concurrent programming; no introduction to basic programming syntax.
 
 ## Learning outcomes
