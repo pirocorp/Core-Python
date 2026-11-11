@@ -13,13 +13,23 @@ import threading
 from time import perf_counter
 
 
+# 'def' defines a function (similar to declaring a method in C#).
+# 'num: int' is a parameter type hint; '-> int' is a return type hint.
+# Python does not enforce type hints at runtime; tools like mypy/Pyright can check them.
+# The trailing ':' starts the function body, whose indentation is significant.
 def factorial(num: int) -> int:
     """Return num!, raising ValueError for negative inputs."""
     if num < 0:
+        # 'raise' throws an exception (similar to C# 'throw').
+        # ValueError is a built-in exception for an invalid value of a valid type.
+        # ValueError("...") constructs the exception and sets its error message.
         raise ValueError("factorial is undefined for negative integers")
     result = 1  # Multiplicative identity; initialize before accumulation.
+    # 'for' iterates over the values produced by range(start, stop).
+    # range(2, num + 1) yields 2, 3, ..., num (the stop value is excluded).
+    # 'i' receives each value; ':' starts the indented loop body.
     for i in range(2, num + 1):
-        result *= i
+        result *= i  # Shorthand for: result = result * i
     return result
 
 
