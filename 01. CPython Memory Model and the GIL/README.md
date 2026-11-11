@@ -1,6 +1,6 @@
 # CPython Memory Model and the GIL
 
-> **Status:** Working lesson for joint review; learner Q&A is being incorporated.
+> **Status:** Working lesson under review; explanations are updated in place as clarifications arise.
 > **Audience:** senior developers with experience in object-oriented and concurrent programming; no introduction to basic programming syntax.
 
 ## Learning outcomes
@@ -257,26 +257,6 @@ C# `Task.Run` can schedule managed CPU work on different thread-pool threads, wh
 - Treating small benchmark fluctuations as proof of CPU scalability.
 - Using an uninitialized accumulator in a factorial implementation and mistaking the exception for a GIL or threading defect.
 
-## Live walkthrough Q&A
-
-**Question:** An experienced software developer may be completely new to Python. What is the GIL, and why should they know about it?
-
-**Answer:** Start with the [GIL introduction](#start-here--what-is-the-gil) above. The GIL is a CPython interpreter lock that prevents simultaneous execution of Python bytecode by multiple threads in the ordinary build, but lets threads overlap while waiting on I/O. See [the CPU-heavy example](examples/factorial_threads.py) and [the waiting example](examples/io_wait_threads.py) for the practical difference. It is not a substitute for application-level thread-safety.
-
-**Question:** When somebody says “Python 3”, which implementation do they mean?
-
-**Answer:** “Python 3” refers to the language's major version, not a specific implementation. The default download from python.org is typically CPython 3; PyPy and other runtimes can also implement Python 3. That is why this course explicitly labels details such as reference counting and the GIL as **CPython-specific**. See [Python vs. CPython](#1-python-vs-cpython).
-
-**Question:** Why do the reference-count examples use `python` blocks rather than an interactive `pycon` transcript?
-
-**Answer:** `pycon` represents the interactive `>>>` prompt, but its Markdown rendering varies. The lesson presents **copyable Python code** with `print(...)` and shows its expected output separately, so learners can execute the example directly without removing prompts.
-
-**Question:** Why is a text timeline with two threads not a useful explanation of GIL scheduling?
-
-**Answer:** It hides important information about when threads release and reacquire the lock. The [three-thread I/O diagram](#3-how-does-the-gil-move-between-threads-io-example) shows each thread's execution and the I/O-triggered hand-offs. It is explicitly an I/O-bound example, not a complete picture of CPU-bound scheduling.
-
-We will add further learner questions and answers as they arise.
-
 ## Documentation (verified against current CPython)
 
 - [`sys`: getrefcount, getswitchinterval, _is_gil_enabled](https://docs.python.org/3.15/library/sys.html)
@@ -293,6 +273,6 @@ We will add further learner questions and answers as they arise.
 - [x] Reference counting, reference cycle, and CPU-thread code tested on CPython 3.13.5.
 - [x] Five automated stdlib unit tests; hands-on exercises.
 - [x] Beginner-to-Python explanation of the GIL added in response to learner feedback, with an I/O-wait demonstration.
-- [x] Initial learner questions and answers documented (GIL, Python vs CPython, executable code formatting).
-- [ ] Further questions and technical clarifications incorporated as the walkthrough continues.
+- [x] Clarifications about GIL, Python vs. CPython, and copyable examples incorporated into the explanations.
+- [ ] Incorporate any further technical clarifications directly into the relevant sections.
 - [ ] User-approved lesson completion.
