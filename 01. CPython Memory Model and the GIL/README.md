@@ -1,4 +1,4 @@
-# 01 — CPython Memory Model and the GIL
+# CPython Memory Model and the GIL
 
 > **Status:** Working lesson for joint review; learner Q&A is being incorporated.
 > **Audience:** senior developers with experience in object-oriented and concurrent programming; no introduction to basic programming syntax.

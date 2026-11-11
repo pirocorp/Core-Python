@@ -3,11 +3,18 @@
 **Audience:** Experienced software engineers familiar with OOP, concurrency, and application design.  
 **Approach:** Learn Python-specific semantics, runtime behavior, idioms, and trade-offs without repeating introductory programming concepts.
 
+## Repository organization
+
+- **Developed lessons:** numbered, human-readable directories at the repository root, so they appear in the main GitHub file listing.
+- **Planned topics:** outlines in `lessons/`; promote a topic to the repository root when it has substantive learner-facing documentation and executable exercises.
+- Lesson numbering and the curriculum are maintained consistently when a topic is published.
+- Internal lesson resources (examples, tests, diagrams) stay inside that lesson's directory.
+
 ## Initial learning path
 
 | # | Topic | Core reference examples |
 |---|---|---|
-| [01](lessons/01-cpython-memory-and-gil/README.md) | CPython Memory Model and the GIL | `sys.getrefcount(a)` with aliases, factorial-based CPU-bound thread comparison |
+| [01](01. CPython Memory Model and the GIL/README.md) | CPython Memory Model and the GIL | `sys.getrefcount(a)` with aliases, factorial-based CPU-bound thread comparison |
 | [02](lessons/02-concurrency-strategies/README.md) | Threads, Processes, and Async I/O | Multiprocessing and multithreading concepts; runnable comparisons to be developed |
 | [03](lessons/03-context-managers/README.md) | Context Managers and Resource Safety | `with open(...)`, custom `MyContextManager` with `__enter__` / `__exit__` |
 | [04](lessons/04-decorators/README.md) | Decorators, Closures, and Cross-Cutting Concerns | Parameterized decorator factory, nested wrapper, positional/keyword arguments |
