@@ -13,7 +13,7 @@ Start with [01 — CPython Memory Model and the GIL](lessons/01-cpython-memory-a
 - Assume professional experience with software engineering, object-oriented design, testing, and concurrent systems (C#/.NET comparisons may be used).
 - Explain **Python-specific semantics and implementation trade-offs**, not generic definitions of classes, loops, or inheritance.
 - Develop a self-contained learning path from the supplied examples and supporting documentation. Retain reference examples alongside verified corrections without embedding presentation attributions.
-- Separate **source material**, **corrections/updates**, and **new exercises**; do not silently treat modern additions as slide content.
+- Separate **source material**, **corrections/updates**, and **new exercises**; do not silently present modern additions as part of the original examples.
 - As we discuss snippets, record the questions and answers inside the relevant lesson and add runnable, testable examples.
 
 ## Current status

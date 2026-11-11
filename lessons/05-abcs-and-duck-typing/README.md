@@ -14,7 +14,7 @@ Original reference examples should be preserved independently of our corrections
 
 ## Senior-level comparisons and pitfalls
 
-A C# `interface` does not translate one-to-one into Python `ABC`; the slides present ABC-based contracts, not a separate Python `interface` keyword.
+A C# `interface` does not translate one-to-one into Python `ABC`; the reference examples use ABC-based contracts, not a separate Python `interface` keyword.
 
 ## Initial questions to investigate
 

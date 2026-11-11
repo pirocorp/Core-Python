@@ -25,7 +25,7 @@
 4. Record the learner's real clarification questions and technically checked answers in the relevant lesson.
 5. Treat language guarantees and CPython-specific implementation details separately.
 6. Use normal ```python``` blocks for copyable Python code. Show expected results separately. Avoid interactive-console transcript fences that can render poorly.
-7. Keep lesson headings focused on **technical subjects**, without presentation titles, author names, or slide numbers.
+7. Keep lesson headings focused on **technical subjects**, without attribution to the original materials.
 
 ## Implementation decisions
 

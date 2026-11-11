@@ -1,6 +1,6 @@
 # 01 — CPython Memory Model and the GIL
 
-> **Status:** Working lesson for joint review; learner Q&A not yet recorded.
+> **Status:** Working lesson for joint review; learner Q&A is being incorporated.
 > **Audience:** senior developers with experience in object-oriented and concurrent programming; no introduction to basic programming syntax.
 
 ## Learning outcomes
@@ -304,5 +304,6 @@ We will add further learner questions and answers as they arise.
 - [x] Reference counting, reference cycle, and CPU-thread code tested on CPython 3.13.5.
 - [x] Five automated stdlib unit tests; hands-on exercises.
 - [x] Beginner-to-Python explanation of the GIL added in response to learner feedback, with an I/O-wait demonstration.
-- [ ] Real user questions and detailed answers recorded after our walkthrough.
+- [x] Initial learner questions and answers documented (GIL, Python vs CPython, executable code formatting).
+- [ ] Further questions and technical clarifications incorporated as the walkthrough continues.
 - [ ] User-approved lesson completion.
