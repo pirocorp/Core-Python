@@ -13,6 +13,9 @@ def validate(requests: int, delay: float) -> None:
 
 
 async def bad_blocking(index: int, delay: float) -> str:
+    # A coroutine runs on the event-loop thread until it yields at an await.
+    # time.sleep() blocks THAT thread, even if CPython releases the GIL.
+    # Therefore other scheduled asyncio Tasks cannot progress during this wait.
     sleep(delay)  # BAD: blocks the event-loop thread until sleep finishes.
     return f"request-{index}:ok"
 
