@@ -578,9 +578,25 @@ async def good_async() -> None:
     await asyncio.sleep(0.2)  # GOOD: suspends the coroutine, not the loop.
 
 async def bridge_blocking_library() -> None:
-    # A synchronous library call runs in a worker thread instead of on the loop.
+    # A worker thread is a separate OS thread used for background work.
+    # to_thread() runs blocking time.sleep(0.2) there, not on the event-loop thread.
+    # 'await' suspends this coroutine until that worker completes.
     await asyncio.to_thread(time.sleep, 0.2)
 ```
+
+**Python syntax note — what is a worker thread?** It is an **OS thread used to execute work on behalf of the caller**. In our example, the main thread runs the `asyncio` event loop. The expression `asyncio.to_thread(time.sleep, 0.2)` arranges for the **synchronous** function `time.sleep(0.2)` to execute in a separate worker thread, managed by the event loop's default thread-pool executor. `time.sleep` is passed **without parentheses** because it is a function reference; `0.2` is the argument forwarded to that function. Awaiting the `to_thread` coroutine yields control to the event loop while the worker is busy, allowing other `asyncio` tasks to progress. It does **not** create a new OS process, and the worker is not the event-loop thread.
+
+**C# comparison:**
+
+```csharp
+using System.Threading;
+using System.Threading.Tasks;
+
+await Task.Run(() => Thread.Sleep(200)); // Blocks a ThreadPool worker.
+await Task.Delay(200);                   // Asynchronous timer: no blocked worker needed.
+```
+
+The closer Python pair is `await asyncio.to_thread(time.sleep, 0.2)` versus `await asyncio.sleep(0.2)`. **Prefer the latter for an asynchronous timer.** `to_thread` is primarily a bridge to existing **blocking I/O libraries** without async interfaces. The default GIL-enabled CPython still limits CPU-parallel execution of ordinary Python bytecode, so thread offloading is not automatically a multi-core CPU optimization.
 
 Even if `time.sleep()` **releases the CPython GIL**, it still blocks the **specific OS thread running the event loop**. Releasing the GIL permits *other OS threads* to execute; it does not make the blocked event-loop thread able to schedule its pending `asyncio` tasks.
 
