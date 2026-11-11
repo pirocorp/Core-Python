@@ -333,11 +333,14 @@ async def simulated_request() -> str:
     return "ok"
 
 async def main() -> None:
-    # create_task() schedules the coroutine so it can run concurrently.
+    # simulated_request() creates a coroutine object (not yet executed).
+    # create_task(...) schedules it on the running event loop and returns a Task.
+    # 'first' holds that Task so we can await its result later.
     first = asyncio.create_task(simulated_request())
     second = asyncio.create_task(simulated_request())
 
-    # 'await' retrieves the result WITHOUT blocking the event loop.
+    # Both tasks are scheduled before either result is awaited.
+    # Awaiting a pending Task suspends this coroutine, not the event loop.
     print(await first, await second)
 
 # asyncio.run() starts/manages the event loop at the application boundary.
@@ -361,6 +364,23 @@ static async Task<string> SimulatedRequestAsync()
 The corresponding calls are `await simulated_request()` in a Python coroutine and `await SimulatedRequestAsync()` in a C# async method. `-> str` annotates the **value obtained by awaiting** the Python coroutine; the call itself produces a coroutine object, rather than an immediate `str`. In C#, the method is declared to return `Task<string>`.
 
 **Crucial execution difference:** calling `simulated_request()` only **creates a coroutine object**; its body begins when it is awaited or scheduled (for example, with `asyncio.create_task(...)`). Calling a normal C# `async Task<string>` method, however, **begins executing its body immediately**, synchronously until it encounters an incomplete await or finishes. `Task.Delay` and `asyncio.sleep` both model non-blocking waits, but Python's `asyncio` typically runs these coroutines on one event-loop thread. Neither construct automatically starts a new thread or gives CPU-bound calculations parallel execution.
+
+**Python syntax note — `first = asyncio.create_task(simulated_request())`:** The inner call `simulated_request()` produces a **coroutine object**, without executing its body. `asyncio.create_task(...)` wraps and **schedules** that coroutine on the **running event loop**, returning an `asyncio.Task`. The assignment `first =` stores the Task reference; `await first` later waits for its completion and obtains the returned `"ok"` string (or propagates its exception).
+
+Because both `first` and `second` are scheduled before we await either one, the waits can overlap; two simulated 0.2-second operations may complete in approximately 0.2 seconds **plus overhead**, not necessarily 0.4 seconds. Scheduling normally allows the coroutine to start when the event loop next gets a chance to run it; it is **not** an immediate call of its body and **does not launch a new OS thread**. Keep a reference to tasks you want to track and await them, or manage their lifetime with `asyncio.TaskGroup` (discussed below).
+
+**C# comparison — two started asynchronous operations:**
+
+```csharp
+Task<string> first = SimulatedRequestAsync();
+Task<string> second = SimulatedRequestAsync();
+
+// Both C# async method calls have already started before these awaits.
+string firstResult = await first;
+string secondResult = await second;
+```
+
+This yields a similar overlap of **asynchronous waits**, but the scheduling semantics differ: a C# `async Task<string>` method typically starts running as soon as it is called, while Python's coroutine body starts after the coroutine is awaited or scheduled. **`asyncio.create_task()` is not the equivalent of C# `Task.Run()`**: it schedules on the event loop rather than automatically offloading CPU work to a thread pool.
 
 ### Python-specific syntax and behavior
 
