@@ -39,6 +39,8 @@ def run_threads(iterations: int, jobs: int) -> list[int]:
         return list(executor.map(cpu_work, [iterations] * jobs))
 
 
+# '-> list[int]' is a return type hint: an ordered list of integers.
+# It resembles C# 'List<int>', but Python does not enforce hints at runtime.
 def run_processes(iterations: int, jobs: int) -> list[int]:
     validate(iterations, jobs)
     # Each worker is a separate process with its own interpreter and memory.
