@@ -223,7 +223,23 @@ if __name__ == "__main__":
 
 **Python syntax note — `with ProcessPoolExecutor(...) as executor:`:** `ProcessPoolExecutor` constructs a **process-pool manager**, not an ordinary OS thread. `max_workers=2` sets a limit of **two worker processes**; it does not mean only two tasks can ever be submitted. `mp_context=context` tells the pool to use the `spawn` configuration selected above. The `with` statement calls the pool's `__enter__()`, and `as executor` binds its result (for this class, **the pool object itself**) to the name `executor`. Tasks are submitted when `executor.map(...)` is used; constructing the executor does **not necessarily** start all workers immediately. The process pool serializes submitted inputs/results across separate process memory spaces. When control exits the `with` block, including during an exception, `__exit__()` calls `shutdown(wait=True)` to wait for submitted work and release pool resources. This is **not** a guarantee that all submitted work is forcibly canceled on an exception.
 
-**How `executor.map(...)` works here:** `executor.map(cpu_work, [500_000, 500_000])` submits two calls to the module-level `cpu_work` function. It provides an iterator of their return values **in input order**. `list(...)` exhausts that iterator and creates a `list[int]`. Compare the existing C# `Process.Start` example below only at the **OS-process boundary** level; it does not supply Python's pool, argument serialization or result collection.
+**Python syntax note — `return list(executor.map(cpu_work, [500_000, 500_000]))`:** This is three operations combined into one expression:
+
+1. `executor.map(cpu_work, [500_000, 500_000])` schedules **two separate calls** to `cpu_work(500000)`. The name `cpu_work` refers to the function without invoking it. The underscores in `500_000` are digit separators for readability; the value is still the integer `500000`.
+2. `executor.map(...)` provides an **iterator of results**, ordered like the input values even if workers finish in a different order. `list(...)` consumes that iterator and builds a `list[int]`; consuming the results may **block** while workers are still running or raise an exception from a failed worker.
+3. `return` sends that finished list back from `run_processes()`. With `[500_000, 500_000]`, it contains **two integers** (the calculated values), not two process objects.
+
+**C# syntax comparison — only the mapping and collection operations:**
+
+```csharp
+using System.Linq;
+
+var results = new[] { 2, 3, 4 }
+    .Select(n => n * n)
+    .ToList(); // List<int> containing 4, 9, 16
+```
+
+This LINQ code runs sequentially by default. It is **not** equivalent to `ProcessPoolExecutor`'s multi-process execution. The existing C# `Process.Start` snippet below illustrates only the OS-process boundary, not the pool, argument serialization or result collection.
 
 **Python syntax note — `multiprocessing.get_context("spawn")`:** `get_context(...)` returns a *multiprocessing context* configured with the named process start method. The string `"spawn"` selects a model where new worker processes start fresh Python interpreters instead of inheriting the parent process's running interpreter state. **This call does not itself launch any process.** The context is passed via `mp_context=context` so that `ProcessPoolExecutor` can use it when it starts workers. Submitted functions and their arguments must be suitable for process-to-process serialization (typically `pickle`); each worker has its own memory. Explicit `spawn` gives the example a consistent start method rather than relying on OS- and Python-version-dependent defaults.
 
