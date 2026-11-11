@@ -586,6 +586,33 @@ async def bridge_blocking_library() -> None:
 
 **Python syntax note — what is a worker thread?** It is an **OS thread used to execute work on behalf of the caller**. In our example, the main thread runs the `asyncio` event loop. The expression `asyncio.to_thread(time.sleep, 0.2)` arranges for the **synchronous** function `time.sleep(0.2)` to execute in a separate worker thread, managed by the event loop's default thread-pool executor. `time.sleep` is passed **without parentheses** because it is a function reference; `0.2` is the argument forwarded to that function. Awaiting the `to_thread` coroutine yields control to the event loop while the worker is busy, allowing other `asyncio` tasks to progress. It does **not** create a new OS process, and the worker is not the event-loop thread.
 
+**Two paths through the same event loop (Mermaid):**
+
+```mermaid
+flowchart TB
+    subgraph P["One Python process"]
+        subgraph EL["OS Thread 1: asyncio event-loop thread"]
+            Loop["Event loop: executes ready Tasks"]
+            A["Task A: await asyncio.sleep(0.2)"]
+            B["Task B: await asyncio.to_thread(time.sleep, 0.2)"]
+            Other["Other coroutine Tasks can keep running"]
+        end
+        Timer["Async timer: no worker thread required"]
+        subgraph Pool["Thread pool: only when offloading blocking work"]
+            Worker["OS Thread 2: worker runs blocking time.sleep(0.2)"]
+        end
+    end
+    Loop --> A
+    Loop --> B
+    A -->|"Yield: register non-blocking timer"| Timer
+    B -->|"Yield: submit blocking function"| Worker
+    Timer -.->|"Timer completes: Task A ready"| Loop
+    Worker -.->|"Worker finishes: Task B ready"| Loop
+    Loop --> Other
+```
+
+*The event loop runs on one OS thread, but its Tasks are **not threads**. `asyncio.sleep()` needs no worker; `asyncio.to_thread()` uses a separate thread from the reusable thread pool. More simultaneous offloads can use additional worker threads. The diagram is illustrative; it does not guarantee task scheduling order.*
+
 **C# comparison:**
 
 ```csharp
