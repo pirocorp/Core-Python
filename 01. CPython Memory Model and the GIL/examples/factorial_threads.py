@@ -13,6 +13,9 @@ import threading
 from time import perf_counter
 
 
+# `num: int` declares a parameter type hint; it does not restrict runtime inputs.
+# `-> int` declares the expected return type; Python does not enforce it at runtime.
+# Static type checkers (such as mypy or Pyright) can validate these annotations.
 def factorial(num: int) -> int:
     """Return num!, raising ValueError for negative inputs."""
     if num < 0:
