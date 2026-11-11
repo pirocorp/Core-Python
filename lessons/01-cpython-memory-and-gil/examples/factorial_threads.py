@@ -1,4 +1,4 @@
-"""Corrected and extended CPU-bound factorial example from slide 9.
+"""Corrected and extended CPU-bound factorial example from the initial reference code.
 
 Run it on normal (GIL-enabled) CPython and optionally a free-threaded build.
 Timing is observational, never an assertion. All worker results are checked.
@@ -14,10 +14,10 @@ from time import perf_counter
 
 
 def factorial(num: int) -> int:
-    """Return num!, with a domain check instead of the source slide's zero."""
+    """Return num!, with a domain check instead of the original example's zero."""
     if num < 0:
         raise ValueError("factorial is undefined for negative integers")
-    result = 1  # Missing in the source slide; required before *=.
+    result = 1  # Missing in the original example; required before *=.
     for i in range(2, num + 1):
         result *= i
     return result

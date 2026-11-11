@@ -1,7 +1,6 @@
 # 04 — Decorators, Closures, and Cross-Cutting Concerns
 
 > **Status:** Outline only — awaiting code transcription, validation, and question-driven expansion.  
-> **Source:** *Python – Syntax/OOP and ML*, slide(s) 12, 14–17.
 
 ## Why this matters to a senior engineer
 
@@ -11,7 +10,7 @@ First-class functions; closure and evaluation timing; decorator factories; `*arg
 
 Parameterized `simple_decorator_4_1`, its inner `decorator` and `wrapper`, positional/keyword arguments, a decorated addition function, and output.
 
-The slide example(s) must be preserved as attributable source material. Before a snippet is presented as runnable, it must be transcribed accurately, checked for errors, and exercised locally. **No runnable code has been asserted for this module in this initial planning pass.**
+Original reference examples should be preserved independently of our corrections and extensions. Before any referenced snippet is presented as runnable, it must be transcribed accurately, checked for errors, and exercised locally. **This module is an outline and does not yet claim to contain tested runnable examples.**
 
 ## Senior-level comparisons and pitfalls
 
@@ -27,7 +26,7 @@ Questions from the learner, technically verified answers, edge cases, and any co
 
 ## Acceptance criteria for the finished lesson
 
-- [ ] Preserve the original slide example (or explicitly state that there is none).
+- [ ] Preserve the original reference example (or explicitly state that there is none).
 - [ ] Include a separate verified, executable version and expected result.
 - [ ] Document Python-specific runtime behavior and failure modes.
 - [ ] Include at least one meaningful hands-on exercise and validation steps.
