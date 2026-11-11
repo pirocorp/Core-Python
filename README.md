@@ -24,4 +24,4 @@ The **root of this repository** contains each developed course lesson as its own
 
 Directories under `lessons/` are **outlines for future topics**. Developed lessons live at the root; Lesson 01 is available for study and remains open to refinements and additional questions.
 
-The older `00. Hello World/` and `01. ReadText/` folders are legacy projects, not part of the senior-level curriculum. They remain unchanged pending a separate cleanup.
+The repository contains only the senior-level course; earlier introductory example projects have been retired.

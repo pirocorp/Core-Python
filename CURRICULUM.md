@@ -57,4 +57,4 @@
 
 ## Progress
 
-Lesson 01 includes working examples, tests and a guided walkthrough, but remains **open for learner questions**. Lessons 02–09 are outlines awaiting their full implementations. Existing legacy folders are unchanged.
+Lesson 01 includes working examples, tests and a guided walkthrough, but remains **open for learner questions**. Lessons 02–09 are outlines awaiting their full implementations.
