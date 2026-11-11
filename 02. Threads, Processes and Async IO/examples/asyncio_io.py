@@ -37,7 +37,9 @@ async def run_sequential(requests: int, delay: float) -> list[str]:
 
 async def run_gather(requests: int, delay: float) -> list[str]:
     validate(requests, delay)
-    # create_task() schedules each coroutine on the same event loop.
+    # simulated_io(i, delay) produces a coroutine object (its body hasn't run).
+    # create_task() wraps and schedules it on the current event loop, returning a Task.
+    # This schedules all requests before we await their results; no OS threads are created.
     tasks = [asyncio.create_task(simulated_io(i, delay)) for i in range(requests)]
     # '*' unpacks a list into positional arguments for asyncio.gather().
     return list(await asyncio.gather(*tasks))
