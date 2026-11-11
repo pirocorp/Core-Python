@@ -249,6 +249,16 @@ This LINQ code runs sequentially by default. It is **not** equivalent to `Proces
 
 It is essential for `spawn`-based multiprocessing: spawned workers import the module containing the worker function, and importing it must **not** start a new process pool recursively. Functions used by the workers should be defined at module level, outside the guard; only the **program entry point that starts the pool** belongs inside it. Importing a module still executes its other top-level statements, so the guard protects only the code inside its block.
 
+![Direct execution versus import: the value of __name__ determines whether the guarded entry point runs.](assets/python_main_guard.svg)
+
+### Why this guard is required in our process-pool example
+
+The script calls `run_processes()`, which creates a `ProcessPoolExecutor` configured with `spawn`. When tasks are submitted, `spawn` starts **fresh Python interpreters** that must load the module containing the worker function `cpu_work`.
+
+If we put `print(run_processes())` at module top level **without the `if __name__ == "__main__":` guard**, those worker interpreters could execute it while importing the module. Each would try to start another process pool during its own initialization, leading to recursive process creation attempts and typically a multiprocessing bootstrapping `RuntimeError`. The guard prevents this: **only the parent entry-point execution starts the demo**; child processes can import and call `cpu_work` without rerunning the demo. In the spawn implementation, the worker's main module is initialized under a different internal module name, so the `"__main__"` condition is not met.
+
+This is why the **function definitions stay outside** the guard (so they are importable), but the **call that starts the application** stays inside it. The diagram illustrates ordinary direct execution versus `import example`; spawned workers use related import/initialization machinery.
+
 **C# comparison — entry point:** Conceptually, this separates Python's executable entry point from importable functions, similar to a C# `Main` method:
 
 ```csharp

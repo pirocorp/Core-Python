@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 930 354" role="img" aria-labelledby="title desc">
+  <title id="title">Python main-entry guard: direct execution vs import</title>
+  <desc id="desc">On the left, python example.py sets __name__ to __main__ and the guarded call runs. On the right, import example sets __name__ to example and the guarded block is skipped.</desc>
+  <rect width="930" height="354" rx="18" fill="#ffffff"/>
+  <rect x="1" y="1" width="928" height="352" rx="17" fill="none" stroke="#d5dbe3" stroke-width="2"/>
+  <text x="28" y="36" font-family="Arial, sans-serif" font-size="18" fill="#17212e" font-weight="700">What happens when the module runs or is imported?</text>
+  <line x1="465" x2="465" y1="65" y2="332" stroke="#edf0f4" stroke-width="2"/>
+
+  <text x="36" y="83" font-family="Arial, sans-serif" font-size="18" fill="#1f2937" font-weight="700">Direct execution</text>
+  <rect x="36" y="99" width="205" height="30" rx="6" fill="#f3f4f6"/>
+  <text x="47" y="119" font-family="Consolas, Menlo, monospace" font-size="14" fill="#293241">python example.py</text>
+
+  <text x="496" y="83" font-family="Arial, sans-serif" font-size="18" fill="#1f2937" font-weight="700">Importing the module</text>
+  <rect x="496" y="99" width="176" height="30" rx="6" fill="#f3f4f6"/>
+  <text x="507" y="119" font-family="Consolas, Menlo, monospace" font-size="14" fill="#293241">import example</text>
+
+  <rect x="34" y="148" width="396" height="54" rx="12" fill="#f9fafb" stroke="#d7dce3"/>
+  <text x="232" y="181" text-anchor="middle" font-family="Consolas, Menlo, monospace" font-size="16" fill="#111827">__name__ = "__main__"</text>
+  <rect x="496" y="148" width="398" height="54" rx="12" fill="#f9fafb" stroke="#d7dce3"/>
+  <text x="695" y="181" text-anchor="middle" font-family="Consolas, Menlo, monospace" font-size="16" fill="#111827">__name__ = "example"</text>
+
+  <path d="M232 208 V239 M225 232 L232 239 L239 232" fill="none" stroke="#18815b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M695 208 V239 M688 232 L695 239 L702 232" fill="none" stroke="#6b7280" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <rect x="34" y="253" width="396" height="80" rx="12" fill="#e5f2eb"/>
+  <circle cx="232" cy="272" r="9" fill="#168058"/>
+  <path d="M228 272 L231 275 L237 268" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  <text x="232" y="299" text-anchor="middle" font-family="Arial, sans-serif" font-size="17" font-weight="700" fill="#17382c">Condition is True</text>
+  <text x="232" y="319" text-anchor="middle" font-family="Consolas, Menlo, monospace" font-size="14" fill="#17382c">Runs run_processes()</text>
+
+  <rect x="496" y="253" width="398" height="80" rx="12" fill="#f7f8fa" stroke="#d9dde3"/>
+  <circle cx="695" cy="272" r="9" fill="#6b7280"/>
+  <path d="M692 269 L698 275 M698 269 L692 275" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+  <text x="695" y="299" text-anchor="middle" font-family="Arial, sans-serif" font-size="17" font-weight="700" fill="#27303d">Condition is False</text>
+  <text x="695" y="319" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" fill="#374151">Skips the guarded block</text>
+</svg>
