@@ -35,6 +35,8 @@ def run_threads(requests: int, delay: float) -> list[str]:
     # Queue is a thread-safe communication channel.
     messages: Queue[tuple[int, str | None, Exception | None]] = Queue()
 
+    # '-> None' means no meaningful return value (similar to C# 'void').
+    # Functions with no explicit 'return' still return None in Python.
     def worker(index: int) -> None:
         try:
             messages.put((index, simulated_io(index, delay), None))
@@ -42,7 +44,11 @@ def run_threads(requests: int, delay: float) -> list[str]:
             # Thread.join() does NOT automatically re-raise a worker exception.
             messages.put((index, None, exc))
 
-    # args=(i,) is a single-element tuple; the comma is required.
+    # Thread(...) constructs a Thread object but does not start it.
+    # 'target=' and 'args=' are keyword arguments to the constructor.
+    # target=worker passes the function itself; worker(i) would CALL it now.
+    # args=(i,) is a one-element tuple: the comma distinguishes it from (i).
+    # When started, each thread executes worker(i).
     threads = [
         threading.Thread(target=worker, args=(i,))
         for i in range(requests)
