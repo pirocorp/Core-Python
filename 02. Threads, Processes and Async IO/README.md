@@ -123,11 +123,15 @@ from concurrent.futures import ThreadPoolExecutor
 def calculate(value: int) -> int:
     return value * value
 
-# 'with' closes the executor when its block finishes.
+# 'with' manages the pool's lifetime (and shuts it down on exit).
+# 'as executor' assigns the value returned by __enter__() to 'executor'.
+# For ThreadPoolExecutor, __enter__() returns the executor object itself.
 with ThreadPoolExecutor(max_workers=2) as executor:
     future = executor.submit(calculate, 5)
     print(future.result())  # 25
 ```
+
+**Python syntax note — `as executor`:** The expression `ThreadPoolExecutor(max_workers=2)` first constructs a pool manager. On entering the `with` block, Python calls that context manager's `__enter__()` method and assigns its result to the variable after `as` (here, `executor`). For `ThreadPoolExecutor`, `__enter__()` returns the executor itself, letting you call `executor.submit(...)`. On leaving the block, Python calls `__exit__()`; this executor waits for submitted work and shuts down, even if an exception leaves the block. Other context managers can return a **different object** from `__enter__()`. Conceptually, this resembles C# `using (var resource = ...)`, but Python's `as` binds the `__enter__()` result.
 
 - `max_workers=2` limits the number of concurrent worker threads.
 - `submit(fn, arg)` schedules the callable and returns a **Future** (a placeholder for its eventual result). It does **not** run `fn` on the calling thread.
