@@ -13,7 +13,9 @@ def run_pool(requests: int, delay: float, workers: int) -> list[str]:
     if workers < 1:
         raise ValueError("workers must be >= 1")
 
-    # 'with' shuts down the pool and waits for submitted work on exit.
+    # 'with' manages the pool lifetime and waits for work on exit.
+    # 'as executor' binds the result of __enter__() to this variable.
+    # For ThreadPoolExecutor, __enter__() returns the executor object itself.
     with ThreadPoolExecutor(max_workers=workers) as executor:
         # submit(function, *arguments) schedules a callable and returns a Future.
         futures = [
