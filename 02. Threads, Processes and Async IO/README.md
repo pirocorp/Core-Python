@@ -83,6 +83,24 @@ thread.join()   # Block the caller until this thread exits (not 'await').
 
 **Note — `-> None` versus C# `void`:** The `-> None` annotation declares that `worker` is **not expected to return a meaningful value**, similarly to a `void` method in C#. There is an important runtime difference: **every normal Python function call produces a value**. If execution reaches the end without an explicit `return`, Python automatically returns `None`. `None` is Python's special value for the absence of a value, broadly similar to `null` in C#. For example, calling `result = worker(2)` directly would print `Worker 2` and assign `None` to `result`. The annotation is a *type hint*; Python does not automatically enforce it at runtime.
 
+**C# comparison — void method and OS thread:**
+
+```csharp
+using System;
+using System.Threading;
+
+void Worker(int index)
+{
+    Console.WriteLine($"Worker {index}");
+}
+
+var thread = new Thread(() => Worker(2)); // Delegate to execute later.
+thread.Start(); // Starts the thread.
+thread.Join();  // Blocks until the thread finishes.
+```
+
+In C#, `new Thread(() => Worker(2))` captures the argument in a delegate. In Python, `target=worker, args=(2,)` supplies the callable and its argument separately. Neither constructor starts the thread automatically.
+
 Python-specific details:
 
 - `threading.Thread` creates an OS thread; `start()` schedules it. Invoking `worker(2)` directly would execute in the **current** thread, not another thread.
@@ -111,6 +129,21 @@ with balance_lock:
 
 **Python syntax note — `with balance_lock:`:** `with` does not create a lock. It enters the context managed by the existing `threading.Lock` object: `__enter__()` acquires the lock before executing the indented block, and `__exit__()` releases it afterward, including when an exception occurs. For this specific lock, the behavior is equivalent to `balance_lock.acquire()` followed by a `try/finally` that calls `balance_lock.release()`. This is similar to C# `lock (balanceLock) { ... }`. Not every `with` statement acquires a lock: context managers can also manage files, transactions, pools, and other resources. See Lesson 03 for the `__enter__`/`__exit__` protocol in depth.
 
+**C# comparison — critical section:**
+
+```csharp
+// balanceLock, balance, and amount are assumed to be defined.
+lock (balanceLock)
+{
+    if (balance >= amount)
+    {
+        balance -= amount;
+    }
+}
+```
+
+The C# `lock` statement automatically exits the critical section, including if an exception occurs. Python's `with balance_lock:` uses the lock's context-manager methods to achieve the analogous behavior; both only synchronize threads using that same lock object.
+
 Here `balance` and `amount` are assumed to already exist: this is a **short illustrative fragment**, not a standalone bank-account implementation. In a real financial system, a local thread lock does not coordinate **different processes or machines**; database transactions or distributed coordination may be required.
 
 ## 4. Managing threads with `ThreadPoolExecutor`
@@ -132,6 +165,20 @@ with ThreadPoolExecutor(max_workers=2) as executor:
 ```
 
 **Python syntax note — `as executor`:** The expression `ThreadPoolExecutor(max_workers=2)` first constructs a pool manager. On entering the `with` block, Python calls that context manager's `__enter__()` method and assigns its result to the variable after `as` (here, `executor`). For `ThreadPoolExecutor`, `__enter__()` returns the executor itself, letting you call `executor.submit(...)`. On leaving the block, Python calls `__exit__()`; this executor waits for submitted work and shuts down, even if an exception leaves the block. Other context managers can return a **different object** from `__enter__()`. Conceptually, this resembles C# `using (var resource = ...)`, but Python's `as` binds the `__enter__()` result.
+
+**C# comparison — resource binding with `using`:**
+
+```csharp
+using System.IO;
+
+using (var resource = new MemoryStream())
+{
+    // 'resource' is available within this scope.
+    resource.WriteByte(42);
+} // Dispose() is called at the end of the scope.
+```
+
+This illustrates the **resource-lifetime** analogy, not an equivalent C# thread pool. Unlike C# `using`, Python `as executor` binds the value returned by the context manager's `__enter__()`, which may differ from the original object. In this case both refer to the same executor.
 
 - `max_workers=2` limits the number of concurrent worker threads.
 - `submit(fn, arg)` schedules the callable and returns a **Future** (a placeholder for its eventual result). It does **not** run `fn` on the calling thread.
