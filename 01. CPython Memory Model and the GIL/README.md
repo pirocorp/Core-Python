@@ -197,11 +197,15 @@ The accumulator must be initialized before multiplication. For negative inputs, 
 [examples/factorial_threads.py](examples/factorial_threads.py) starts with:
 
 ```python
-# `num: int` declares a parameter type hint; it does not restrict runtime inputs.
-# `-> int` declares the expected return type; Python does not enforce it at runtime.
-# Static type checkers (such as mypy or Pyright) can validate these annotations.
+# 'def' defines a function (similar to declaring a method in C#).
+# 'num: int' is a parameter type hint; '-> int' is a return type hint.
+# Python does not enforce type hints at runtime; tools like mypy/Pyright can check them.
+# The trailing ':' starts the function body, whose indentation is significant.
 def factorial(num: int) -> int:
     if num < 0:
+        # 'raise' throws an exception (similar to C# 'throw').
+        # ValueError is a built-in exception for an invalid value of a valid type.
+        # ValueError("...") constructs the exception and sets its error message.
         raise ValueError("factorial is undefined for negative integers")
     result = 1
     for i in range(2, num + 1):
