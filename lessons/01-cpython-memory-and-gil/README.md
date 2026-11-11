@@ -61,24 +61,25 @@ Traditional CPython's GIL provides a coarse-grained way to protect the interpret
 
 Do **not** conclude that every memory-management operation needs the GIL in every Python implementation. Free-threaded CPython replaces the coarse lock with other synchronization and reference-management techniques.
 
-### 3. What happens when two threads run?
+### 3. How does the GIL move between threads? (I/O example)
 
-A simplified **CPU-bound** example:
+The following diagram shows **three real OS threads** sharing a single GIL-enabled CPython interpreter. It illustrates what happens when a thread **blocks on I/O** (for example, waiting for a network response). This is **not a CPU-only scheduling diagram**.
 
-```text
-Time ------------------------------------------------------------>
+![GIL ownership moving between three threads when blocking I/O allows another thread to run](assets/gil_serial_execution.png)
 
-Thread A: [executes Python] [waiting]         [executes Python]
-Thread B: [waiting]         [executes Python] [waiting]
-GIL:       held by A        held by B         held by A
-```
+**How to read the diagram:**
 
-1. Thread A holds the GIL and executes Python code.
-2. Thread B exists but cannot execute Python bytecode until it obtains the GIL.
-3. CPython can switch which thread holds the lock, so execution **interleaves**.
-4. Interleaving means both tasks make progress over time; it does **not** mean their Python bytecode is running simultaneously on two CPU cores.
+1. **Time runs from left to right.** Each dotted horizontal line represents one OS thread. A thick arrow labeled **run** means that thread is currently executing Python code while holding the GIL.
+2. **Thread 1** begins executing Python code. When it reaches a blocking **I/O** operation, CPython can **release the GIL**, letting another ready thread run.
+3. **Thread 2** acquires the GIL and executes Python code. When Thread 2 reaches its own blocking I/O, it can release the lock in turn.
+4. **Thread 3** then executes until it needs I/O. Meanwhile, a previously waiting thread (such as Thread 1) may be ready to continue and can **reacquire the GIL**. Later, another thread can acquire it again.
+5. The labels **release GIL** and **acquire GIL** identify hand-offs. A thread waiting for I/O does not need to occupy the GIL while it is blocked.
 
-This diagram is conceptual, **not** an exact schedule. The interpreter's thread-switch interval (often 5 ms) is only a target for checking switches, not a guaranteed time slice, fairness rule, or limit on starvation.
+**What the diagram demonstrates:** several Python threads can make progress concurrently because waiting time can overlap with useful execution in another thread. **In traditional GIL-enabled CPython, that does not mean two threads execute Python bytecode in parallel at the same instant.**
+
+**What it does not demonstrate:** a guaranteed execution order, equal CPU time, or the only way threads can switch. CPython can also switch between **CPU-bound** Python threads without waiting for I/O. The interpreter's switch interval (often 5 ms) is a scheduling hint, not a fixed time slice; OS scheduling and native extension behavior also matter. Some native code can release the GIL and perform parallel work.
+
+To observe overlapping waits in practice, run [the I/O-wait example](examples/io_wait_threads.py). To observe the limitation for pure-Python CPU computation, run [the factorial comparison](examples/factorial_threads.py).
 
 ### 4. CPU-bound versus I/O-bound: why the difference matters
 
@@ -285,6 +286,10 @@ C# `Task.Run` can schedule managed CPU work on different thread-pool threads, wh
 **Question:** Why do the reference-count examples use `python` blocks rather than an interactive `pycon` transcript?
 
 **Answer:** `pycon` represents the interactive `>>>` prompt, but its Markdown rendering varies. The lesson presents **copyable Python code** with `print(...)` and shows its expected output separately, so learners can execute the example directly without removing prompts.
+
+**Question:** Why is a text timeline with two threads not a useful explanation of GIL scheduling?
+
+**Answer:** It hides important information about when threads release and reacquire the lock. The [three-thread I/O diagram](#3-how-does-the-gil-move-between-threads-io-example) shows each thread's execution and the I/O-triggered hand-offs. It is explicitly an I/O-bound example, not a complete picture of CPU-bound scheduling.
 
 We will add further learner questions and answers as they arise.
 
