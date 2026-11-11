@@ -17,9 +17,12 @@ def validate(requests: int, delay: float) -> None:
         raise ValueError("delay must be finite and >= 0")
 
 
-# 'async def' defines a coroutine function; calling it creates a coroutine.
+# 'async def' declares a coroutine function; calling it creates a coroutine object.
+# Unlike a typical C# async Task<T> call, its body does not start on invocation.
+# '-> str' annotates the value produced when the coroutine is awaited.
 async def simulated_io(index: int, delay: float) -> str:
     # 'await' suspends this coroutine while the event loop runs other tasks.
+    # asyncio.sleep(delay) is non-blocking (similar to C# Task.Delay).
     await asyncio.sleep(delay)
     return f"request-{index}:ok"
 
