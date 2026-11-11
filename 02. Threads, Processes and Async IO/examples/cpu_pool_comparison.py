@@ -52,8 +52,11 @@ def run_processes(iterations: int, jobs: int) -> list[int]:
     # 'as executor' receives the pool object returned by __enter__().
     # Leaving 'with' waits for submitted work and shuts down the pool.
     with ProcessPoolExecutor(max_workers=jobs, mp_context=context) as executor:
-        # map() submits calls; results cross process boundaries via serialization.
-        # list() collects them in input order (the workers may finish out of order).
+        # [iterations] * jobs repeats this input 'jobs' times (for example, [5] * 2 -> [5, 5]).
+        # map(cpu_work, inputs) schedules cpu_work(value) for each input.
+        # The result iterator preserves input order, even if workers finish out of order.
+        # list(...) consumes results (possibly waiting or raising a worker exception).
+        # return passes the final list[int] back to the caller.
         return list(executor.map(cpu_work, [iterations] * jobs))
 
 
