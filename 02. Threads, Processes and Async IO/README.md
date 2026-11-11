@@ -473,6 +473,39 @@ flowchart TD
 
 *Conceptual scheduler diagram, not a precise implementation trace or a promise of fairness/order.*
 
+### Example: two concurrent coroutines on one event-loop thread
+
+The following **Mermaid sequence diagram** shows the important scheduling distinction: both Tasks are registered *before* `main()` awaits their results. Each Task yields at `await asyncio.sleep(0.2)`, allowing the event loop to run the other Task. The timer waits overlap without creating another OS thread.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant M as main()
+    participant L as asyncio event loop
+    participant A as Task A
+    participant B as Task B
+    participant T as Timer / I/O readiness
+
+    M->>L: create_task(A), create_task(B)
+    Note over M,L: Both Tasks scheduled before awaiting results
+    M-->>L: await Task A (main suspends)
+    L->>A: Run A
+    A-->>L: await asyncio.sleep(0.2) (yield)
+    L->>T: Register A timer
+    L->>B: Run B
+    B-->>L: await asyncio.sleep(0.2) (yield)
+    L->>T: Register B timer
+    Note over L,T: Loop can run other ready work or wait for readiness
+    T-->>L: Timers become ready
+    L->>A: Resume A
+    A-->>L: Return result A
+    L->>B: Resume B
+    B-->>L: Return result B
+    L-->>M: Resume main with completed task results
+```
+
+*Illustrative order only: actual task resumption order is not guaranteed. Both `asyncio.sleep()` calls yield, so their waits can overlap; the event loop does not execute two pieces of Python bytecode simultaneously on the same thread.*
+
 ### Compare JavaScript and Python
 
 In JavaScript, a common event-loop-based async wait looks like this:
