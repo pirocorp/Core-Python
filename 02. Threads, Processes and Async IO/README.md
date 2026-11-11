@@ -351,6 +351,8 @@ if __name__ == "__main__":
 
 **Python syntax note — `print(await first, await second)` is not sequential task execution:** Python evaluates the arguments of `print()` from left to right, so the code first awaits `first`, then awaits `second`. However, because **both Tasks were already scheduled** with `asyncio.create_task()`, the event loop can run them concurrently. Their simulated waits overlap; two 0.2-second delays normally take about **0.2 seconds plus scheduling overhead**, not 0.4 seconds.
 
+**Official Python documentation confirms this behavior.** Its [*Coroutines and Tasks* example](https://docs.python.org/3/library/asyncio-task.html#coroutines) creates `task1 = asyncio.create_task(say_after(1, "hello"))` and `task2 = asyncio.create_task(say_after(2, "world"))`, then uses `await task1` followed by `await task2`. Python describes these tasks as running **concurrently**: the example takes about **2 seconds**, not the 3 seconds needed for two sequential calls. The two `await` expressions are evaluated in order, but both tasks were **scheduled before the first await**. `print(await first, await second)` follows the same rule; the fact that the awaits are arguments to `print()` does not change it.
+
 Compare two different execution patterns:
 
 ```python
