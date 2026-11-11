@@ -66,21 +66,26 @@ Start with [`examples/threading_io.py`](examples/threading_io.py). The sequentia
 ```python
 import threading
 
+# '-> None' is a return type hint, similar to C# 'void'.
+# A Python function without an explicit return returns None.
 def worker(index: int) -> None:
     print(f"Worker {index}")
 
-# 'target=' names a callable, not the result of calling it.
-# 'args=(2,)' is a one-element tuple: the comma is required.
+# Thread(...) creates a Thread object but does not start it.
+# target= and args= are named (keyword) arguments to its constructor.
+# target=worker passes the function object; worker() would CALL it now.
+# args=(2,) is a one-element tuple: the comma makes it a tuple, not (2).
+# When started, the new thread will call worker(2).
 thread = threading.Thread(target=worker, args=(2,))
-thread.start()  # Start the OS thread.
-thread.join()   # Block the caller until this thread exits.
+thread.start()  # Actually start executing worker(2) on an OS thread.
+thread.join()   # Block the caller until this thread exits (not 'await').
 ```
 
 Python-specific details:
 
 - `threading.Thread` creates an OS thread; `start()` schedules it. Invoking `worker(2)` directly would execute in the **current** thread, not another thread.
 - `join()` is synchronous waiting; it is **not** Python's `await` and it does **not** automatically propagate worker exceptions.
-- `target=worker` passes the **function object** without calling it. `args=(2,)` supplies its positional parameters.
+- `target=` and `args=` are **keyword arguments** in the `Thread(...)` constructor. `target=worker` passes the **function object** without calling it; `target=worker()` would call it immediately. `args=(2,)` is a one-item tuple whose comma is required; `(2)` alone is just an integer. The thread calls `worker(2)` only when started.
 - The full example uses `queue.Queue` for **thread-safe communication** and sends worker exceptions back through the queue. Unlike an unsynchronized shared list or counter, the queue manages access between threads.
 
 For `--requests 3 --delay 0.2`, sequential waiting is *approximately* `0.6s` and overlapping waits *approximately* `0.2s`, plus scheduling overhead. **Do not assert those numbers**. Real I/O and worker scheduling will differ.
