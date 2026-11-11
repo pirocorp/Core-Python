@@ -324,10 +324,11 @@ In the standard GIL-enabled CPython, separate processes can run pure-Python CPU 
 ```python
 import asyncio
 
-# 'async def' declares a coroutine function.
+# 'async def' declares a coroutine function (similar to an async C# method).
+# '-> str' describes its awaited result, like the string in C# Task<string>.
 async def simulated_request() -> str:
-    # 'await' suspends this coroutine until the awaitable completes.
-    # asyncio.sleep() yields to the event loop without blocking its thread.
+    # 'await' suspends this coroutine while the event loop can run other tasks.
+    # asyncio.sleep(0.2) is like C# Task.Delay(200): a non-blocking wait.
     await asyncio.sleep(0.2)
     return "ok"
 
@@ -343,6 +344,23 @@ async def main() -> None:
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+**C# comparison — asynchronous delay returning a string:**
+
+```csharp
+using System.Threading.Tasks;
+
+static async Task<string> SimulatedRequestAsync()
+{
+    // Await a non-blocking delay (200 milliseconds).
+    await Task.Delay(200);
+    return "ok";
+}
+```
+
+The corresponding calls are `await simulated_request()` in a Python coroutine and `await SimulatedRequestAsync()` in a C# async method. `-> str` annotates the **value obtained by awaiting** the Python coroutine; the call itself produces a coroutine object, rather than an immediate `str`. In C#, the method is declared to return `Task<string>`.
+
+**Crucial execution difference:** calling `simulated_request()` only **creates a coroutine object**; its body begins when it is awaited or scheduled (for example, with `asyncio.create_task(...)`). Calling a normal C# `async Task<string>` method, however, **begins executing its body immediately**, synchronously until it encounters an incomplete await or finishes. `Task.Delay` and `asyncio.sleep` both model non-blocking waits, but Python's `asyncio` typically runs these coroutines on one event-loop thread. Neither construct automatically starts a new thread or gives CPU-bound calculations parallel execution.
 
 ### Python-specific syntax and behavior
 
