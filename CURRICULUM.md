@@ -15,7 +15,7 @@
 | # | Topic | Core reference examples |
 |---|---|---|
 | [01](01.%20CPython%20Memory%20Model%20and%20the%20GIL/README.md) | CPython Memory Model and the GIL | `sys.getrefcount(a)` with aliases, factorial-based CPU-bound thread comparison |
-| [02](lessons/02-concurrency-strategies/README.md) | Threads, Processes, and Async I/O | Multiprocessing and multithreading concepts; runnable comparisons to be developed |
+| [02](02.%20Threads,%20Processes%20and%20Async%20IO/README.md) | Threads, Processes, and Async I/O | OS threads, ThreadPoolExecutor, ProcessPoolExecutor, asyncio, TaskGroup and blocking-I/O pitfalls |
 | [03](lessons/03-context-managers/README.md) | Context Managers and Resource Safety | `with open(...)`, custom `MyContextManager` with `__enter__` / `__exit__` |
 | [04](lessons/04-decorators/README.md) | Decorators, Closures, and Cross-Cutting Concerns | Parameterized decorator factory, nested wrapper, positional/keyword arguments |
 | [05](lessons/05-abcs-and-duck-typing/README.md) | Abstract Base Classes and Interface-Like Contracts | `Shape(ABC)`, `Circle`, payment gateways |
