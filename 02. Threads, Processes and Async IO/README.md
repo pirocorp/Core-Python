@@ -216,9 +216,11 @@ def run_processes() -> list[int]:
         # map() submits work for both inputs; list() collects results in input order.
         return list(executor.map(cpu_work, [500_000, 500_000]))
 
-# Needed when using 'spawn': worker processes import this module.
+# __name__ is automatically set to "__main__" when run as a script.
+# When imported, it is the module name instead; this block is skipped.
+# This guard prevents spawned worker imports from starting another pool.
 if __name__ == "__main__":
-    print(run_processes())
+    print(run_processes())  # Call the function and print its returned list.
 ```
 
 **Python syntax note — `with ProcessPoolExecutor(...) as executor:`:** `ProcessPoolExecutor` constructs a **process-pool manager**, not an ordinary OS thread. `max_workers=2` sets a limit of **two worker processes**; it does not mean only two tasks can ever be submitted. `mp_context=context` tells the pool to use the `spawn` configuration selected above. The `with` statement calls the pool's `__enter__()`, and `as executor` binds its result (for this class, **the pool object itself**) to the name `executor`. Tasks are submitted when `executor.map(...)` is used; constructing the executor does **not necessarily** start all workers immediately. The process pool serializes submitted inputs/results across separate process memory spaces. When control exits the `with` block, including during an exception, `__exit__()` calls `shutdown(wait=True)` to wait for submitted work and release pool resources. This is **not** a guarantee that all submitted work is forcibly canceled on an exception.
@@ -243,7 +245,25 @@ This LINQ code runs sequentially by default. It is **not** equivalent to `Proces
 
 **Python syntax note — `multiprocessing.get_context("spawn")`:** `get_context(...)` returns a *multiprocessing context* configured with the named process start method. The string `"spawn"` selects a model where new worker processes start fresh Python interpreters instead of inheriting the parent process's running interpreter state. **This call does not itself launch any process.** The context is passed via `mp_context=context` so that `ProcessPoolExecutor` can use it when it starts workers. Submitted functions and their arguments must be suitable for process-to-process serialization (typically `pickle`); each worker has its own memory. Explicit `spawn` gives the example a consistent start method rather than relying on OS- and Python-version-dependent defaults.
 
-**Why `if __name__ == "__main__":` matters:** A spawned interpreter imports the relevant Python module. Keeping the program entry point inside this guard prevents that import from rerunning the code that starts the pool and recursively launching more workers. Define pool worker functions at module level so they are importable.
+**Python syntax note — `if __name__ == "__main__":`:** Python automatically defines `__name__` in each module. When you run a file directly, such as `python example.py`, its `__name__` is `"__main__"`, so `if __name__ == "__main__":` is true and the indented block runs. If another module uses `import example`, the imported file's `__name__` is `"example"`, so that block is skipped. `==` compares values, and `print(run_processes())` calls the function, then prints its returned list. This conditional is commonly called the **main-entry guard**.
+
+It is essential for `spawn`-based multiprocessing: spawned workers import the module containing the worker function, and importing it must **not** start a new process pool recursively. Functions used by the workers should be defined at module level, outside the guard; only the **program entry point that starts the pool** belongs inside it. Importing a module still executes its other top-level statements, so the guard protects only the code inside its block.
+
+**C# comparison — entry point:** Conceptually, this separates Python's executable entry point from importable functions, similar to a C# `Main` method:
+
+```csharp
+using System;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        Console.WriteLine("Application started");
+    }
+}
+```
+
+C# has an explicit entry-point mechanism; Python conventionally uses the `__name__` check to decide which statements run only when a module is the main program.
 
 **C# comparison — separate process, not `Task.Run`:**
 
