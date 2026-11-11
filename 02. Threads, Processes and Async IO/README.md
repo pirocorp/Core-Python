@@ -205,8 +205,10 @@ def cpu_work(iterations: int) -> int:
 # list[int] is a return type hint: a list whose items should be integers.
 # Like C# List<int>, but Python does not enforce this annotation at runtime.
 def run_processes() -> list[int]:
-    # 'spawn' starts fresh Python interpreters: portable across major OSes.
+    # get_context("spawn") chooses how later worker processes are started.
+    # It does NOT start a process here; "spawn" means a fresh interpreter.
     context = multiprocessing.get_context("spawn")
+    # mp_context tells the process pool to use that start method.
     with ProcessPoolExecutor(max_workers=2, mp_context=context) as executor:
         return list(executor.map(cpu_work, [500_000, 500_000]))
 
@@ -214,6 +216,27 @@ def run_processes() -> list[int]:
 if __name__ == "__main__":
     print(run_processes())
 ```
+
+**Python syntax note — `multiprocessing.get_context("spawn")`:** `get_context(...)` returns a *multiprocessing context* configured with the named process start method. The string `"spawn"` selects a model where new worker processes start fresh Python interpreters instead of inheriting the parent process's running interpreter state. **This call does not itself launch any process.** The context is passed via `mp_context=context` so that `ProcessPoolExecutor` can use it when it starts workers. Submitted functions and their arguments must be suitable for process-to-process serialization (typically `pickle`); each worker has its own memory. Explicit `spawn` gives the example a consistent start method rather than relying on OS- and Python-version-dependent defaults.
+
+**Why `if __name__ == "__main__":` matters:** A spawned interpreter imports the relevant Python module. Keeping the program entry point inside this guard prevents that import from rerunning the code that starts the pool and recursively launching more workers. Define pool worker functions at module level so they are importable.
+
+**C# comparison — separate process, not `Task.Run`:**
+
+```csharp
+using System.Diagnostics;
+
+// Illustrative only: worker.exe must exist for this to run.
+using var process = Process.Start(new ProcessStartInfo
+{
+    FileName = "worker.exe",
+    UseShellExecute = false
+});
+
+process?.WaitForExit(); // Wait for the separate OS process.
+```
+
+C# `Process.Start` illustrates the **process boundary**. It does not implement a process pool, task serialization, or result collection. Python's `ProcessPoolExecutor` manages those additional responsibilities.
 
 **Python syntax note — `list[int]`:** The built-in `list` is an ordered, mutable collection. In a type annotation, `list[int]` means a list of integers, comparable to `List<int>` in C#. In `-> list[int]`, the arrow specifies the **expected return type**. This does not convert values or enforce their types when the function runs; static type checkers can report mismatches. `list[int]` has been supported since Python 3.9.
 
