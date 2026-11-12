@@ -303,6 +303,10 @@ The minimal manager above explains the protocol. Now examine the **actual class*
 
 ### 5.1 The complete class from the demo
 
+**New import — `TracebackType`:** `from types import TracebackType` brings in the Python type for an exception **traceback object** (the structured execution path leading to the exception). The closest C# concept is `Exception.StackTrace`, although the Python value is an object, not a formatted stack-trace string. We use `TracebackType | None` **only as a type hint** for the third argument of `__exit__()`; it does not create a traceback or change exception handling. Normal exit passes `None` for all three exception arguments.
+
+**Also imported:** `from __future__ import annotations` postpones the evaluation of annotations in this module; it is a Python language directive, not a resource-management API.
+
 ```python
 from __future__ import annotations
 
@@ -1220,6 +1224,12 @@ All examples below refer to the real [`examples/async_managers.py`](examples/asy
 ### 9.1 `AsyncConnection`: the class-based async manager
 
 **This is the complete `AsyncConnection` class from `examples/async_managers.py`**, followed by the real `run_connection()` function. Nothing essential is hidden in the imported demo:
+
+**Imports used here:**
+
+- **`asyncio`** is Python's standard-library module for coroutine-based asynchronous programming using an **event loop** (introduced in Lesson 02). Here `asyncio.sleep(0)` deliberately **yields control to other ready tasks**; it does not block the event-loop thread, create a new thread, or simulate a real database connection. Its purpose is similar to C# `await Task.Yield()`, though the runtimes schedule tasks differently.
+- **`TracebackType`** comes from the standard-library `types` module. It identifies a **structured exception traceback** (conceptually related to C# `Exception.StackTrace`) and appears only as the `exc_traceback: TracebackType | None` type annotation for `__aexit__()`. Python provides the traceback automatically if the managed body raises; we do not create one. On normal exit, `exc_type`, `exc_value` and `exc_traceback` are all `None`.
+
 
 ```python
 import asyncio
