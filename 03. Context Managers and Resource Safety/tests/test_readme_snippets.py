@@ -34,6 +34,40 @@ class ReadmeSnippetTests(unittest.TestCase):
                 target = (LESSON / local).resolve()
                 self.assertTrue(target.exists(), f"Broken README link: {link}")
 
+    def test_embedded_demo_implementations_match_the_source_files(self) -> None:
+        """Prevent teaching code from drifting away from runnable demos."""
+        markdown = README.read_text(encoding="utf-8")
+        embedded_functions = [
+            (
+                "custom_manager.py",
+                "from __future__ import annotations",
+                "\n\nclass FailingEnter:",
+            ),
+            (
+                "contextlib_tools.py",
+                "@contextmanager\ndef traced_resource",
+                "\n\ndef run_traced",
+            ),
+            (
+                "async_managers.py",
+                "@asynccontextmanager\nasync def async_resource",
+                "\n\nasync def run_connection",
+            ),
+        ]
+        for filename, start_marker, end_marker in embedded_functions:
+            source = (LESSON / "examples" / filename).read_text(encoding="utf-8")
+            start = source.find(start_marker)
+            end = source.find(end_marker, start + len(start_marker))
+            self.assertGreaterEqual(start, 0, f"Source start missing: {filename}")
+            self.assertGreater(end, start, f"Source end missing: {filename}")
+            excerpt = source[start:end].strip()
+            with self.subTest(example=filename):
+                self.assertIn(
+                    excerpt,
+                    markdown,
+                    f"README example no longer matches examples/{filename}",
+                )
+
     def test_documented_python_snippets_are_runnable_independently(self) -> None:
         markdown = README.read_text(encoding="utf-8")
         snippets = list(
