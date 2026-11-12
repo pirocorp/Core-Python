@@ -6,37 +6,13 @@ This lesson builds on [Threads, Processes, and Async I/O](../02.%20Threads,%20Pr
 
 ## 1. Why context managers matter
 
-Servers, APIs, and background jobs acquire resources that must have predictable lifetimes: files, locks, database connections, temporary directories, transactions, and network sessions. Relying on garbage collection to clean them up creates unpredictable behavior and resource exhaustion under load.
+Applications acquire files, locks, database connections, temporary directories, transactions, and network sessions. These resources need **predictable lifetimes**: relying on garbage collection for cleanup can exhaust handles or leave connections open under load.
 
-A **context manager** is an object implementing the Python protocol that surrounds a block with **enter** and **exit** behavior. The `with` statement arranges for the exit behavior to run on normal completion, exceptions, and early exits such as `return` or `break`, **provided the enter operation completed successfully**.
+A **context manager** defines what happens when a block begins and ends. Python's `with` statement calls the context manager's `__enter__()` method before running the block and its `__exit__()` method when leaving it, including on exceptions and early `return` or `break` — **provided `__enter__()` completed successfully**.
 
-```python
-with open("example.txt", "r", encoding="utf-8") as file:
-    contents = file.read()
-# The file is closed here, whether read() succeeded or raised an exception.
-```
+The closest C# analogy is `using` with `IDisposable`. Both help with deterministic cleanup, but Python's `__exit__()` also receives exception information and can **suppress** a pending exception by returning a truthy value. C# `Dispose()` has no equivalent return-value mechanism.
 
-This is conceptually similar to C# `using` with `IDisposable`:
-
-```csharp
-using var reader = new StreamReader("example.txt");
-string contents = reader.ReadToEnd();
-// Disposal happens when the containing scope exits.
-```
-
-**Important difference:** Python context managers also receive exception information and can **deliberately suppress an exception** by returning a truthy value from `__exit__`. C# `using` / `Dispose()` has no equivalent return-value-based suppression mechanism.
-
-### One-minute decision table
-
-| Resource situation | Python API | C# analogy |
-|---|---|---|
-| Use an ordinary file or lock for a fixed block | `with resource as value:` | `using` / `lock` (depending on resource) |
-| Implement a custom synchronous resource | `__enter__` / `__exit__` | `IDisposable` + acquisition method |
-| Wrap setup/cleanup without a class | `@contextmanager` | `try/finally` around a helper |
-| Number of resources known only at runtime | `contextlib.ExitStack` | A LIFO collection of disposables |
-| Resource setup/cleanup requires `await` | `async with` / `__aenter__` / `__aexit__` | `await using` with `IAsyncDisposable` |
-| Acquire dynamic async resources | `contextlib.AsyncExitStack` | Dynamically managed async disposables |
-| Ignore only an expected exception | `contextlib.suppress(ExpectedError)` | Targeted `try/catch` |
+We start with the built-in file manager, then implement the protocol ourselves, and finally handle nested, dynamic, and asynchronous resources.
 
 ## 2. Requirements, files, and exact commands
 
@@ -72,36 +48,52 @@ python -m compileall -q examples tests
 python -m unittest discover -s tests -v
 ```
 
-**Expected validation:** all **23 deterministic unit tests** pass. No elapsed-time assertions, network calls, additional dependencies, or files left in the repository. The file example uses `tempfile.TemporaryDirectory`, which deletes its own temporary data.
+**Expected validation:** all **23 deterministic unit tests** pass. The samples need no network access or external packages. Sample data is written to a temporary directory and removed at exit. Python may create local `__pycache__` files when compiling or running the examples.
 
-On systems where the Python executable is called `python3` or `py -3`, substitute that launcher consistently.
+On systems where the Python executable is called `python3` or `py -3`, substitute that launcher consistently. Snippets importing `examples.*` should be run **from this lesson directory**; Python 3 supports importing these modules through an implicit namespace package.
 
-## 3. `with` and `as`: start with reading a file
+## 3. Reading a file with `with`
 
-The simplest practical context-manager example is **reading a file without manually calling `close()`**:
+A file object is a built-in context manager. Reading a file requires no explicit call to `close()`:
 
 ```python
-# Assume example.txt already exists in the current working directory.
+# This short example assumes example.txt exists in the working directory.
 with open("example.txt", "r", encoding="utf-8") as file:
     data = file.read()
 
-# The file is automatically closed when leaving the with block.
+# The with block has ended: the file has been closed.
 ```
 
-### Python syntax note — four lines, one resource lifecycle
+- `open("example.txt", "r", encoding="utf-8")` opens a text file. `"r"` selects **read mode**; `encoding=` is a **keyword argument** specifying UTF-8 decoding.
+- `with ... as file:` calls the file object's `__enter__()`. The returned value is assigned to `file`; `as` is **not a type declaration or a new variable scope**.
+- The indented suite is the managed block. `file.read()` returns the file's contents as a string.
+- On leaving the block, Python calls `__exit__()` and closes the file even if `file.read()` raises. The name `file` remains bound after the block, but the underlying resource is **closed**.
 
-1. `open("example.txt", "r", encoding="utf-8")` opens an existing text file for **reading** and returns a file object that supports the context-manager protocol. `"r"` means read mode; `encoding="utf-8"` specifies the text encoding.
-2. `with ... as file:` calls the file object's `__enter__()`. The returned object is assigned to the local name `file`; `as` does **not** create a new variable scope.
-3. `data = file.read()` reads the contents into the variable `data`.
-4. When the indented block ends, Python calls the object's `__exit__()`, which **closes the file**, even if reading raises an exception. You do not write `file.close()` yourself.
+**C# equivalent for the file lifetime:**
 
-**C# comparison:** this is similar to `using var reader = new StreamReader("example.txt");` followed by `reader.ReadToEnd()`. Python's `with` makes the boundary of the resource lifetime explicit through indentation.
+```csharp
+using (var reader = new StreamReader("example.txt"))
+{
+    string data = reader.ReadToEnd();
+} // Dispose() executes even if ReadToEnd() throws.
+```
 
-**Important for a runnable exercise:** the short snippet above assumes `example.txt` exists. Running it without creating the file first produces `FileNotFoundError`. The complete [`examples/file_resources.py`](examples/file_resources.py) below **creates a temporary input**, so no setup, manual file creation, or cleanup is required.
+The short Python snippet needs an existing `example.txt`: otherwise it raises `FileNotFoundError`. The runnable [`examples/file_resources.py`](examples/file_resources.py) creates its own temporary input, demonstrates closing on success **and** on exceptions, and leaves no sample file behind:
 
-### A complete, self-contained file example
+```bash
+python examples/file_resources.py
+```
 
-This longer version makes the file lifecycle visible and uses `TemporaryDirectory` so you can run it on any supported machine:
+```text
+Read: Python context managers
+File closed: True
+Closed after exception: True
+Caught: simulated processing failure
+```
+
+### Creating test data without external files
+
+The example uses `tempfile.TemporaryDirectory` to create and automatically remove a directory. Here is the central logic in a **standalone**, copyable form:
 
 ```python
 from pathlib import Path
@@ -130,35 +122,25 @@ Closed after with: True
 Hello from Python
 ```
 
-### Additional Python syntax notes
-
-- `with EXPRESSION as TARGET:` evaluates an expression to obtain a context manager, calls its `__enter__()`, and assigns the **return value** to `TARGET` (which need not be the manager itself). Python calls `__exit__()` when leaving the block.
-- `with open(path, ...) as reader` and `with path.open(...) as reader` are both valid. The first explicitly invokes the built-in `open()` function; the second calls the equivalent file-opening method on a `Path` object.
-- `Path(directory) / "example.txt"` uses the `pathlib.Path` `/` operator to join filesystem path segments. It is **not arithmetic division**.
-- `encoding="utf-8"` is a **keyword argument**. Explicit encoding avoids platform-dependent defaults.
-- `"w"` means **write, replacing existing contents**; `"r"` means **read**.
-- `with TemporaryDirectory() as directory` manages a temporary directory. Its `as` value is a **path string**, and the directory is deleted on exit.
-- The `reader` variable still exists after its `with` block, but the underlying file is **already closed**.
+Here `"w"` means **write mode** (overwriting existing content), `Path(directory) / "example.txt"` joins path components using the `Path` `/` operator (not division), and `TemporaryDirectory.__enter__()` returns a **directory path string**, not the manager object. When its outer `with` exits, that directory is removed.
 
 ### How `with` relates to `try/finally`
 
-For a simple, successful acquisition, the *conceptual* lifecycle is:
+For **closing a file**, the relevant cleanup guarantee can also be written manually:
 
 ```python
-manager = open("example.txt", "r", encoding="utf-8")
-file = manager.__enter__()
-
+file = open("example.txt", "r", encoding="utf-8")
 try:
-    contents = file.read()
+    data = file.read()
 finally:
-    manager.__exit__(None, None, None)
+    file.close()  # Runs even if read() raises.
 ```
 
-This **simplified sketch is not a fully equivalent implementation of `with`**: it omits exception details, suppression, and the interpreter's special-method lookup rules. In particular, on an exception, Python passes the exception information to `__exit__` (not three `None` values). Prefer `with` rather than reimplementing the protocol manually.
+This is an accurate illustration of the **file cleanup behavior**, not a full implementation of Python's `with` protocol. A general context manager calls `__exit__(exc_type, exc_value, traceback)` with real exception information and can choose whether to suppress the exception. We explore that protocol next.
 
 ## 4. Implement `__enter__` and `__exit__`
 
-Start with the deliberately minimal, runnable [`examples/simple_context_manager.py`](examples/simple_context_manager.py). There are no type annotations, event logs, or exception-suppression decisions yet. First learn the three steps: **enter the context, execute the body, exit the context**.
+The file object above follows the same enter/exit protocol. [`examples/simple_context_manager.py`](examples/simple_context_manager.py) makes the call order visible using a small custom class:
 
 ```python
 class MyContextManager:
@@ -181,27 +163,28 @@ Inside the context
 Exiting the context
 ```
 
-### Syntax note — what does each line do?
+### The context-manager protocol
 
 - `class MyContextManager:` creates a class. Python recognizes it as a context manager because it defines the required protocol methods; it does **not** have to inherit from an interface.
 - `def __enter__(self):` defines the method called when entering `with`. `self` means the current instance, broadly like C# `this`. The two leading and trailing underscores mark a **special method**.
-- `return self` sends the same instance back to the caller. Therefore, in `with MyContextManager() as cm:`, the variable `cm` references the object returned by `__enter__()`. **`as cm` is not a new thread, a special resource allocation, or a new variable scope.**
+- `return self` sends the same instance back to the caller. Therefore, in `with MyContextManager() as cm:`, the variable `cm` references the object returned by `__enter__()`. **The `as` target receives the value returned by `__enter__()`, not necessarily the manager itself.**
 - `def __exit__(self, exc_type, exc_value, traceback):` defines the method Python invokes when leaving the block. On normal exit, the three exception arguments are `None`. If the body raises, Python passes the exception class, exception instance, and traceback.
 - The `__exit__` method has **no explicit `return`**, so it implicitly returns `None`. That means **it does not suppress exceptions**; the original exception still propagates after cleanup.
 - `with MyContextManager() as cm:` constructs a manager and calls `__enter__`. The indented `print` is the managed body; after that body completes, Python calls `__exit__`.
 
-**Important:** this is intentionally a **lifecycle demonstration**. It prints messages but does not actually open or close a resource. For real resource cleanup, implement meaningful acquisition in `__enter__` and release in `__exit__`.
+This class demonstrates the call order; printing messages does **not** acquire or release a resource. A real manager must implement the appropriate acquisition and cleanup.
 
 **C# analogy:** the lifecycle resembles entering a C# `using` scope, executing the body, and running `Dispose()` when leaving it. Unlike `using`, Python passes exception information to `__exit__`, and a *truthy* return value could suppress an exception.
 
-### Moving from the minimal example to production code
+### Exception arguments and type hints
 
-[`examples/custom_manager.py`](examples/custom_manager.py) expands the same `MyContextManager` idea with an event log, return type hints, nested contexts, failure paths, and **selective exception suppression**. The signature is annotated as `__exit__(self, exc_type: type[BaseException] | None, exc_value: BaseException | None, exc_traceback: TracebackType | None) -> bool`.
+The more complete [`examples/custom_manager.py`](examples/custom_manager.py) adds an event log, typed method signatures, nested managers, and exception-handling behavior. This file defines its **own** `MyContextManager` class with an extended constructor; it is **not** the minimal class shown above.
 
-- `-> str` / `-> bool` are **return type hints**, not runtime enforcement; the simple example omits hints so the protocol is easier to see.
-- `type[BaseException] | None` means an exception class or `None`, and `TracebackType | None` means traceback data or `None`.
-- On normal exit, the exception arguments are all `None`, and Python ignores the return value of `__exit__`.
-- Returning `False` or `None` allows pending exceptions to propagate; returning `True` deliberately suppresses one.
+Its `__exit__()` signature uses `exc_type: type[BaseException] | None`, `exc_value: BaseException | None`, `exc_traceback: TracebackType | None`, and `-> bool`:
+
+- `type[BaseException] | None` means **an exception class or `None`**; `TracebackType | None` means traceback data or `None`.
+- `| None` is a **union type hint**, not a bitwise operation here. Return annotations such as `-> str` or `-> bool` are **not enforced automatically at runtime**.
+- Normal exit provides three `None` values; exceptional exit provides information about the active exception. A falsy return allows an exception to propagate, while a truthy return suppresses it (Section 5).
 
 ### The exact lifecycle
 
@@ -214,8 +197,8 @@ sequenceDiagram
 
     Caller->>Manager: Evaluate manager expression
     Caller->>Manager: __enter__()
-    Manager->>Resource: Acquire resource
-    Resource-->>Manager: Handle
+    Manager->>Resource: Acquire resource if needed
+    Resource-->>Manager: Optional handle
     Manager-->>Caller: __enter__ returns value for "as"
     Caller->>Caller: Execute with body
     alt Normal exit or early return
@@ -223,8 +206,8 @@ sequenceDiagram
     else Exception in body
         Caller->>Manager: __exit__(type, exception, traceback)
     end
-    Manager->>Resource: Release resource
-    Manager-->>Caller: Falsy = propagate, truthy = suppress pending exception
+    Manager->>Resource: Release resource if acquired
+    Manager-->>Caller: Resume or propagate (based on exit result)
 ```
 
 **Guarantee and boundary:** once `__enter__` returns successfully, `__exit__` is invoked when leaving the managed block, including normal and exceptional exits. If `__enter__` itself raises, **that manager's `__exit__` is not called**. A manager that partially acquires resources inside `__enter__` must clean up its own partially acquired state before raising, or use a robust acquisition pattern.
@@ -234,6 +217,8 @@ sequenceDiagram
 This is the biggest difference from ordinary C# `using`. In [`custom_manager.py`](examples/custom_manager.py), `MyContextManager` optionally suppresses **only** `ValueError` when configured:
 
 ```python
+from examples.custom_manager import MyContextManager
+
 events: list[str] = []
 
 try:
@@ -284,6 +269,8 @@ flowchart TD
 ## 6. Nesting and reverse-order release (LIFO)
 
 ```python
+from examples.custom_manager import MyContextManager
+
 events: list[str] = []
 
 with MyContextManager("outer", events) as outer, MyContextManager(
@@ -371,19 +358,30 @@ A fixed number of resources can use nested `with` statements. But an API might n
 
 ```python
 from contextlib import ExitStack
+from examples.exit_stack import acquire  # The manager defined in this lesson.
+
+events: list[str] = []
 
 with ExitStack() as stack:
     resources = []
     for name in ("file", "db", "socket"):
         resource = stack.enter_context(acquire(name, events))
         resources.append(resource)
-    # Work with the successfully acquired resources.
-# All entered resources exit in reverse order.
+    events.append("work")
+
+print(events)
+# ['acquire:file', 'acquire:db', 'acquire:socket', 'work',
+#  'release:socket', 'release:db', 'release:file']
 ```
 
-Here `acquire` is the generator-based context manager defined in the runnable example (it is **not** a built-in Python function). It logs each acquisition and release.
+`acquire` is defined in `examples/exit_stack.py`; it is **not** a Python built-in. `events` records the acquisition and cleanup order. `stack.enter_context(manager)` calls its `__enter__()` and registers its `__exit__()` to run when the stack is closed.
 
-If acquisition of `db` fails, `ExitStack` releases the previously acquired `file` even though the code never reaches the work step. The resource that **failed to enter** is responsible for cleaning up any of its own partial acquisition.
+If acquisition of `db` fails, `ExitStack` releases the previously acquired `file` even though the code never reaches the work step. The manager that **failed to enter** is responsible for cleaning up its own partial acquisition. The runnable demo prints:
+
+```text
+Partial acquisition: acquire:file | acquire:db | release:file | error:cannot acquire db
+Acquired before cleanup: ['file']
+```
 
 ```mermaid
 flowchart LR
@@ -473,11 +471,29 @@ use: session-handle
 close
 ```
 
-`AsyncExitStack` plays the same role as `ExitStack` for a dynamic collection of async resources. Use `await stack.enter_async_context(manager)` to register asynchronous cleanup.
+`AsyncExitStack` plays the same role as `ExitStack` for a dynamic collection of async resources. Use `await stack.enter_async_context(manager)` to register asynchronous cleanup:
+
+```python
+import asyncio
+from contextlib import AsyncExitStack
+from examples.async_managers import async_resource
+
+async def main() -> None:
+    events: list[str] = []
+    async with AsyncExitStack() as stack:
+        for name in ("db", "cache"):
+            await stack.enter_async_context(async_resource(name, events))
+        events.append("work")
+    print(events)
+
+asyncio.run(main())
+```
+
+**Expected output:** `['open:db', 'open:cache', 'work', 'close:cache', 'close:db']`. The async resources are released in reverse order.
 
 ### Cancellation and failure paths
 
-An `asyncio.Task` can be cancelled while holding a resource. Its exception unwinds the `async with` block, so Python attempts the awaited `__aexit__` cleanup. The runnable example tests this by cancelling a task and checking that its resource close event occurs before the caller catches `asyncio.CancelledError`.
+An `asyncio.Task` can be cancelled while holding a resource. Its exception unwinds the `async with` block, so Python attempts the awaited `__aexit__` cleanup. The runnable example tests this without timing assumptions. Its cancellation events are `open:stream → close:stream → caught:CancelledError`, showing that resource cleanup was awaited before the caller observed cancellation.
 
 **Nuance:** `asyncio.CancelledError` inherits from `BaseException`, so an ordinary `except Exception:` does not catch it. A `finally` block *does* run while unwinding, but asynchronous cleanup can itself be interrupted by additional cancellation, timeouts, or process termination. Do not interpret `async with` as an absolute guarantee against process crashes.
 
@@ -497,68 +513,7 @@ An `asyncio.Task` can be cancelled while holding a resource. Its exception unwin
 
 A locking example from Lesson 02 uses `with threading.Lock():`, but be careful in asynchronous code: acquiring a contended `threading.Lock` synchronously on the event-loop thread can block the loop. Prefer `asyncio.Lock` with `async with` when synchronizing coroutines in the same event loop.
 
-## 11. Expected demonstration outputs
-
-Run each example from the lesson directory as shown in Section 2.
-
-**`python examples/file_resources.py`**
-
-```text
-Read: Python context managers
-File closed: True
-Closed after exception: True
-Caught: simulated processing failure
-```
-
-**`python examples/simple_context_manager.py`**
-
-```text
-Entering the context
-Inside the context
-Exiting the context
-```
-
-**`python examples/custom_manager.py`**
-
-```text
-Nested managers: enter:outer | enter:inner | body:resource:outer,resource:inner | exit:inner:none | exit:outer:none
-Exception propagated: enter:guard | body:raise | exit:guard:ValueError | caught:ValueError | after:with
-Exception suppressed: enter:guard | body:raise | exit:guard:ValueError | after:with
-Failed __enter__: enter:failed | caught:RuntimeError
-Early return: enter:early | body:return | exit:early:none | returned
-```
-
-**`python examples/contextlib_tools.py`**
-
-```text
-Normal generator manager: acquire:cache | use:resource:cache | release:cache
-Exception in generator manager: acquire:cache | use:resource:cache | release:cache | caught:ValueError
-Selective suppression: attempt:optional-cache | continue:without-cache
-Optional manager on: acquire:optional | use:resource:optional | release:optional
-Optional manager off: use:direct
-```
-
-**`python examples/exit_stack.py`**
-
-```text
-Success: acquire:file | acquire:db | acquire:socket | work:file,db,socket | release:socket | release:db | release:file
-Acquired before cleanup: ['file', 'db', 'socket']
-Partial acquisition: acquire:file | acquire:db | release:file | error:cannot acquire db
-Acquired before cleanup: ['file']
-```
-
-**`python examples/async_managers.py`**
-
-```text
-Async class: open:db | use:db | close:db
-AsyncExitStack: open:db | registered:db | open:cache | registered:cache | work | close:cache | close:db
-Async exception: open:db | body:raise | close:db | caught:ValueError
-Cancellation: open:stream | close:stream | caught:CancelledError
-```
-
-Each sample's behavior is tested without depending on wall-clock time.
-
-## 12. Hands-on exercises
+## 11. Hands-on exercises
 
 ### Exercise A — Build a resource-aware logger
 
@@ -584,7 +539,7 @@ Add an async resource to `async_managers.py` with two observable events: `open` 
 
 **Common failure:** starting cleanup in an unawaited coroutine, which does not guarantee resource release before control returns.
 
-## 13. Troubleshooting and production pitfalls
+## 12. Troubleshooting and production pitfalls
 
 | Symptom | Likely cause | What to inspect |
 |---|---|---|
@@ -601,7 +556,7 @@ Add an async resource to `async_managers.py` with two observable events: `open` 
 
 **Security and correctness:** resource cleanup is not the same as successfully committing a transaction or safely handling untrusted data. In production, ensure closure errors are logged, transactional failure semantics are explicit, and exception suppression does not conceal security-critical failures.
 
-## 14. Official Python references
+## 13. Official Python references
 
 - [Python Language Reference — The `with` statement](https://docs.python.org/3.14/reference/compound_stmts.html#the-with-statement)
 - [Python Language Reference — The `async with` statement](https://docs.python.org/3.14/reference/compound_stmts.html#the-async-with-statement)
@@ -609,4 +564,4 @@ Add an async resource to `async_managers.py` with two observable events: `open` 
 - [Python standard library — `tempfile`](https://docs.python.org/3.14/library/tempfile.html)
 - [Python standard library — `asyncio` tasks and cancellation](https://docs.python.org/3.14/library/asyncio-task.html)
 
-All sample code above is supported by executable examples in this folder and the accompanying tests; no third-party code or external service is needed.
+Each runnable example and its relevant edge cases are covered by standard-library tests. Run the examples and tests using the commands in Section 2.
