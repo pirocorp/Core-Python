@@ -1039,7 +1039,48 @@ The central line is `manager = traced_resource("optional", events) if enabled el
 
 When the number of resources is fixed, nested `with` statements are sufficient. In a server or batch process, you may need to acquire an unknown number of connections or handles. [`examples/exit_stack.py`](examples/exit_stack.py) demonstrates how `contextlib.ExitStack` keeps track of everything **successfully entered** and later runs the corresponding exit methods in **reverse order**.
 
-### 8.1 Start from the actual `run_batch()` demo
+### 8.1 Start small: Database and Cache
+
+**Before introducing the complete batch-processing demo, understand the two imports:**
+
+- `contextlib` is a **Python standard-library module** providing utilities for creating and combining context managers; it is not a third-party dependency.
+- `contextmanager` is a **Python-specific decorator**. Applied to a generator function containing one `yield`, it makes that function usable with `with`. The code before `yield` runs on entry; the `finally` block runs when the scope ends. Section 7 introduced this mechanism; Lesson 04 covers the decorator syntax in depth.
+- `ExitStack` is a **context-manager class** that collects cleanup actions for an arbitrary number of successfully entered contexts. `stack.enter_context(manager)` enters a manager and remembers its `__exit__()`, so the stack can clean everything up **last-in, first-out (LIFO)**. This is analogous to maintaining a stack of C# `IDisposable` resources and disposing them in reverse order.
+
+Here is a complete, independently runnable example using both imports:
+
+```python
+from contextlib import ExitStack, contextmanager
+
+@contextmanager
+def acquire(name: str):
+    print(f"Acquiring {name}")
+    try:
+        yield name
+    finally:
+        print(f"Releasing {name}")
+
+with ExitStack() as stack:
+    db = stack.enter_context(acquire("Database"))
+    cache = stack.enter_context(acquire("Cache"))
+    print(f"Using {db} and {cache}")
+```
+
+**Expected output:**
+
+```text
+Acquiring Database
+Acquiring Cache
+Using Database and Cache
+Releasing Cache
+Releasing Database
+```
+
+**Read the order:** entering `acquire("Database")` prints the first message and suspends at `yield name`. `enter_context()` returns that yielded value as `db` and registers the manager's cleanup. Entering Cache does the same. After the shared work completes, exiting the outer `with ExitStack()` resumes the **Cache** generator's `finally` first, then **Database**. If the work raises an exception, both registered managers are still exited.
+
+For exactly two known resources, ordinary nesting is enough: `with acquire("Database") as db, acquire("Cache") as cache:` provides the same acquisition and reverse-release ordering. The benefit of `ExitStack` appears when the resources come from a **runtime collection**: the next demo loops over an arbitrary tuple of names and also handles partial acquisition failure.
+
+### 8.2 Start from the actual `run_batch()` demo
 
 ```python
 from examples.exit_stack import run_batch
@@ -1062,9 +1103,9 @@ failure acquired: ['file']
 failure events: acquire:file | acquire:db | release:file | error:cannot acquire db
 ```
 
-### 8.1.1 The complete implementation behind the output
+### 8.2.1 The complete implementation behind the output
 
-The call above is not magic: **both `acquire()` and `run_batch()` are ordinary functions from `examples/exit_stack.py`**. Here is their actual implementation, with only the imports added so the snippet is independently runnable:
+The call above is not magic: **both `acquire()` and `run_batch()` are ordinary functions from `examples/exit_stack.py`**. Here is their actual implementation, with only the imports added so the snippet is independently runnable. The additional `Iterator` import comes from Python's standard-library `collections.abc`: it describes an **iterator protocol** in the return type hint `Iterator[str]` (a sequence of yielded strings), not an extra resource or a new context manager. The `ExitStack` and `contextmanager` imports have already been explained in Section 8.1.
 
 ```python
 from collections.abc import Iterator
@@ -1137,7 +1178,7 @@ Acquired before cleanup: ['file']
 
 **Boundary:** The demo records logical acquisition/release events, not real operating-system handles. In production, if acquisition fails **after** partially allocating a resource but **before** `yield`, that acquisition code must clean up its own partial state; `ExitStack` can only release managers that entered successfully.
 
-### 8.2 New Python syntax in the demo
+### 8.3 New Python syntax in the demo
 
 | Syntax | Explanation | C# comparison |
 |---|---|---|
