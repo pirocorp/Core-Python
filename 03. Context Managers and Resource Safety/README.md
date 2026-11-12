@@ -717,23 +717,48 @@ C# `foreach` can dispose its enumerator and execute pending iterator `finally` b
 
 ### 7.2 `suppress`, `nullcontext` and another conditional expression
 
-The same file demonstrates two built-in managers:
+The same file demonstrates two built-in managers. First, consider **why** `suppress()` is useful: an optional cache might already have been removed, and cleaning it up should not fail merely because the file is missing.
 
 ```python
 from contextlib import suppress, nullcontext
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
-with suppress(FileNotFoundError):
-    raise FileNotFoundError("optional cache missing")
+# Keep the demonstration safe and reproducible: this directory starts empty.
+with TemporaryDirectory() as directory:
+    missing_cache = Path(directory) / "optional-cache.txt"
+    with suppress(FileNotFoundError):
+        missing_cache.unlink()  # Raises FileNotFoundError if absent.
+
+print("Optional cleanup completed")
 
 with nullcontext("already available") as resource:
     print(resource)
 ```
 
-**Output:** `already available`. The first exception is intentionally suppressed and execution reaches the second block.
+**Expected output:**
 
-- `suppress(FileNotFoundError)` is similar to a targeted C# `try/catch (FileNotFoundException)` whose handler intentionally does nothing. Suppress only **expected** errors, never every `Exception` indiscriminately.
-- `nullcontext(value)` performs no acquisition or cleanup but returns `value` from its enter method. It is useful when the caller already owns the resource or when management is optional.
-- In `run_optional(enabled)`, the demo uses `manager = traced_resource("optional", events) if enabled else nullcontext("direct")`. This is the **same conditional expression** introduced in Section 5: choose the manager depending on the Boolean, then use a **single shared `with` body**.
+```text
+Optional cleanup completed
+already available
+```
+
+**What happens, step by step?**
+
+1. `TemporaryDirectory()` creates an empty temporary directory and removes it afterwards. The cache path is deliberately **missing**, without modifying any user files.
+2. `suppress(FileNotFoundError)` configures a context manager to ignore **only** that exception class, like a narrowly targeted C# `catch (FileNotFoundException) { }` block.
+3. `missing_cache.unlink()` tries to delete the optional cache file. It is a **real file operation**; because that file is absent, the method raises `FileNotFoundError`.
+4. When execution leaves the `with` block due to that exception, Python calls `suppress`'s `__exit__()`. It recognizes `FileNotFoundError` and returns a truthy value, **suppressing** the pending exception.
+5. Execution continues **after** the `with suppress(...)` block. If there had been statements after the failing `unlink()` **inside** that block, they would **not** be resumed.
+6. If an unrelated error occurs, such as `PermissionError`, it **propagates**: we have not requested that it be ignored.
+
+**Why not just write `raise FileNotFoundError("optional cache missing")` inside `with suppress(FileNotFoundError)`?** That is a valid **teaching trick**: `raise` means *throw a new exception*, just like C# `throw new FileNotFoundException(...)`, and `suppress` immediately handles it. However, **raising an exception only to suppress it has no practical purpose**. Production code uses `suppress` around a real operation that might fail with an *expected, acceptable* error. That is why the runnable `examples/contextlib_tools.py` demo also performs an actual `Path.unlink()`, while keeping its original event log and tests.
+
+**Practical shortcut:** for this *specific* single-file deletion, `Path.unlink(missing_ok=True)` already means “do not fail when the file does not exist”, so it is usually clearer than `suppress(FileNotFoundError)`. We use the context manager here to teach **general selective exception suppression**, useful when an operation has no equivalent `missing_ok` option. Avoid `suppress(Exception)`: it can hide genuine defects.
+
+**C# nuance:** the Python `unlink()` example behaves differently from `System.IO.File.Delete()`, which normally does **not** throw simply because its target does not exist. The comparison above is about targeted exception handling, **not identical missing-file behavior** between these APIs.
+
+**What about `nullcontext()`?** `nullcontext(value)` performs no acquisition or cleanup but returns `value` on entry. It is useful when a caller already owns a resource or when management is optional. In `run_optional(enabled)`, the demo uses `manager = traced_resource("optional", events) if enabled else nullcontext("direct")`: a Python conditional expression that selects a manager and uses a **single common `with` body**.
 
 Run both optional-resource paths from the original demo:
 
