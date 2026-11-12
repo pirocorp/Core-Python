@@ -52,7 +52,7 @@ if __name__ == "__main__":
     hello()
 ```
 
-Run from `lessons/04-decorators/`:
+Run from `04. Decorators, Closures and Cross-Cutting Concerns/`:
 
 ```bash
 python examples/function_decorators.py
@@ -423,7 +423,7 @@ Both approaches allow behavior to be added without modifying the wrapped impleme
 
 ## 6. `@contextmanager` and `@asynccontextmanager` — decorators that create resource scopes
 
-[Lesson 03 — Context Managers and Resource Safety](../../03.%20Context%20Managers%20and%20Resource%20Safety/README.md) uses `@contextmanager` and `@asynccontextmanager` to teach resource lifetime. Their behavior inside `with` belongs to that lesson; **this section explains the decorators themselves**: why `@` changes a function, when its code runs, and how the synchronous and asynchronous variants differ.
+[Lesson 03 — Context Managers and Resource Safety](../03.%20Context%20Managers%20and%20Resource%20Safety/README.md) uses `@contextmanager` and `@asynccontextmanager` to teach resource lifetime. Their behavior inside `with` belongs to that lesson; **this section explains the decorators themselves**: why `@` changes a function, when its code runs, and how the synchronous and asynchronous variants differ.
 
 ### 6.1 A decorator transforms the function definition
 
@@ -573,7 +573,7 @@ if __name__ == "__main__":
     print("result:", greet("Ada", punctuation="?"))
 ```
 
-Run from `lessons/04-decorators/`:
+Run from `04. Decorators, Closures and Cross-Cutting Concerns/`:
 
 
 
@@ -727,35 +727,409 @@ To preserve static typing when writing reusable decorators, a later section can 
 4. Reverse the order of `@trace("outer")` and `@trace("inner")`. Predict separately the factory, decoration, call-entry, and finally-exit order.
 5. Replace the body of `add` with `raise RuntimeError("boom")`. Confirm that both `finally` blocks execute and the exception is still raised.
 
-## 9. Quick validation and practice
+## 9. Closure runtime introspection: cells, not frozen values
 
-**Run the Python demonstrations (JavaScript demo is optional):**
+The `nonlocal` mechanism introduced earlier changes *a binding in an enclosing function scope*. You can inspect the live captured state through function and code attributes. This is useful for debugging decorators and retained state, but you should not build business logic that mutates private closure cells.
+
+This is the full `examples/closure_introspection.py`:
+
+
+
+```python
+"""Inspect the live lexical bindings retained by a Python closure."""
+
+
+def make_accumulator(start: int):
+    total = start
+
+    def add(delta: int) -> int:
+        nonlocal total
+        total += delta
+        return total
+
+    return add
+
+
+def main() -> None:
+    first = make_accumulator(10)
+    second = make_accumulator(100)
+
+    print("free vars:", first.__code__.co_freevars)
+    print("captured before:", first.__closure__[0].cell_contents)
+    print("first call:", first(5))
+    print("captured after:", first.__closure__[0].cell_contents)
+    print("second call:", second(1))
+    print("independent:", first(1))
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Run from this lesson directory: `python examples/closure_introspection.py`.
+
+**Expected output:**
+
+
+
+```text
+free vars: ('total',)
+captured before: 10
+first call: 15
+captured after: 15
+second call: 101
+independent: 16
+```
+
+- `first.__code__` is the code object for the nested `add` function. Its `co_freevars` tuple lists the names referenced from outer function scopes. A **tuple** is an ordered immutable sequence: here it contains exactly one item, `'total'`.
+- `first.__closure__` is the function's tuple of **cell objects** (or `None` for a function without captured cells). A cell holds the *current value of a captured binding*. `cell_contents` lets us inspect that current value.
+- The names in `co_freevars` correspond positionally to the cells in `__closure__`; `first.__closure__[0]` therefore represents `total`. The integer goes from 10 to 15 after `first(5)`, proving that this is not a snapshot.
+- `second = make_accumulator(100)` captures an *independent* `total` binding. There is no shared global counter.
+
+**C# analogy:** A closure can keep a compiler-generated captured-variable holder alive after the creating method returns. Python explicitly exposes code objects and closure cells for introspection, unlike normal C# delegate use. This is introspection, **not an alternative to encapsulated state or thread synchronization**. In practice, avoid depending on closure-cell indexes when refactoring code: the set and order of free variables can change.
+
+## 10. Generic decorators with `ParamSpec` and `TypeVar`
+
+The `*args`/`**kwargs` wrapper in Section 7 forwards arguments at runtime, but naive annotations do not tell a static type checker what argument types the decorated callable still accepts. Python's standard-library `typing` module provides two relevant mechanisms:
+
+- `Callable` describes an object that can be invoked, with specified parameter and result types, similar in purpose to a C# delegate signature.
+- `ParamSpec("P")` creates a **parameter specification variable**: a placeholder for the target function's **entire parameter list**, including positional, keyword-only, and named arguments. `P.args` / `P.kwargs` annotate the wrapper's forwarding parameters. This is more expressive than a single `TypeVar` describing a value type.
+- `TypeVar("R")` introduces a type variable for the return value. The same `R` in the input and output signatures tells a type checker that the wrapper preserves the original result type.
+- `from functools import wraps` imports the metadata decorator covered in Section 8. Static typing and runtime metadata preservation solve **different** problems.
+
+Full `examples/typed_decorators.py`:
+
+
+
+```python
+"""Preserve a decorated callable's static parameter and result types."""
+
+from functools import wraps
+from typing import Callable, ParamSpec, TypeVar
+
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def audit(func: Callable[P, R]) -> Callable[P, R]:
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        print(f"audit: enter {func.__name__}")
+        try:
+            return func(*args, **kwargs)
+        finally:
+            print(f"audit: exit {func.__name__}")
+
+    return wrapper
+
+
+@audit
+def calculate(amount: int, *, multiplier: int = 2) -> int:
+    """Multiply an integer amount."""
+    return amount * multiplier
+
+
+def main() -> None:
+    print("name:", calculate.__name__)
+    print("result:", calculate(7, multiplier=3))
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Run: `python examples/typed_decorators.py`.
+
+**Expected output:**
+
+
+
+```text
+name: calculate
+audit: enter calculate
+audit: exit calculate
+result: 21
+```
+
+**Step-by-step:** When Python executes `@audit`, the original `calculate` function becomes the `func` argument. `@wraps(func)` copies metadata onto `wrapper`. `calculate(7, multiplier=3)` invokes the wrapper, which forwards the integer positional argument and the named keyword argument, and returns 21. `finally` always logs exit, even when the original raises; it does **not** suppress exceptions.
+
+**Important distinction:** `ParamSpec` and `TypeVar` communicate a contract to tools such as Pyright or mypy; they do not runtime-validate values or change the actual `(*args, **kwargs)` argument binding on the wrapper. No third-party type checker is required to run this lesson, and the unit tests validate runtime behavior, not static type-checker results. C# generic constraints are compile-time enforced by the C# compiler; ordinary Python type annotations are not runtime checks. When designing a decorator that *changes* accepted parameters or return types, this exact generic signature would be incorrect; use a contract that models the transformation instead.
+
+## 11. Sync vs async decorators: the point where C# intuition can mislead
+
+A normal Python `def` wrapper around an `async def` function often returns a coroutine object immediately; it does not necessarily produce a callable reported as a coroutine function by `inspect.iscoroutinefunction`, and any sync `try/finally` around that return runs **before** the coroutine body starts. In contrast, an `async def` wrapper that uses `await func(...)` surrounds the *execution* of the asynchronous operation.
+
+This distinction matters for logging, error boundaries, metrics, tracing, cancellation, and retries. Recall from Lesson 02: calling `async def` creates a coroutine object; `asyncio.create_task` schedules that coroutine; `await` drives it (or waits for a task). This differs from C# async methods, which start executing synchronously up to the first incomplete await.
+
+**New imports:** `asyncio` supplies the event loop, `Event` synchronization primitive, and `Task` scheduler. `inspect.iscoroutinefunction` checks whether a callable is recognized as a coroutine function; `inspect.iscoroutine` checks an actual coroutine object. `Awaitable` from `typing` describes a value usable with `await`, while `Callable`, `ParamSpec` and `TypeVar` were introduced above. `functools.wraps` preserves metadata but **does not convert a synchronous wrapper into an async function**.
+
+Full `examples/async_decorators.py`:
+
+
+
+```python
+"""Async wrappers: coroutine creation, execution, errors, and cancellation."""
+
+import asyncio
+import inspect
+from functools import wraps
+from typing import Awaitable, Callable, ParamSpec, TypeVar
+
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def trace_async(func: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
+    @wraps(func)
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        print("async: enter")
+        try:
+            return await func(*args, **kwargs)
+        finally:
+            print("async: exit")
+
+    return wrapper
+
+
+def sync_wrapper_for_async(
+    func: Callable[P, Awaitable[R]],
+) -> Callable[P, Awaitable[R]]:
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> Awaitable[R]:
+        print("sync wrapper: called")
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+@trace_async
+async def work(kind: str, ready: asyncio.Event | None = None) -> str:
+    print("body:", kind)
+    if kind == "error":
+        raise ValueError("boom")
+    if kind == "cancel":
+        assert ready is not None
+        ready.set()
+        await asyncio.Event().wait()  # Suspend until the task is cancelled.
+    await asyncio.sleep(0)
+    return "done"
+
+
+@sync_wrapper_for_async
+async def delayed() -> str:
+    print("delayed body")
+    return "late"
+
+
+async def main() -> None:
+    print("async function:", inspect.iscoroutinefunction(work))
+    coroutine = work("ok")
+    print("coroutine created")
+    print("result:", await coroutine)
+
+    print("sync wrapper is async:", inspect.iscoroutinefunction(delayed))
+    delayed_coroutine = delayed()
+    print("delayed coroutine:", inspect.iscoroutine(delayed_coroutine))
+    print("delayed result:", await delayed_coroutine)
+
+    try:
+        await work("error")
+    except ValueError:
+        print("caught: ValueError")
+
+    ready = asyncio.Event()
+    task = asyncio.create_task(work("cancel", ready))
+    await ready.wait()  # Wait until the task has started its body.
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        print("caught: CancelledError")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+Run: `python examples/async_decorators.py`.
+
+**Expected output:**
+
+
+
+```text
+async function: True
+coroutine created
+async: enter
+body: ok
+async: exit
+result: done
+sync wrapper is async: False
+sync wrapper: called
+delayed coroutine: True
+delayed body
+delayed result: late
+async: enter
+body: error
+async: exit
+caught: ValueError
+async: enter
+body: cancel
+async: exit
+caught: CancelledError
+```
+
+### 11.1 Trace of the normal path
+
+1. Applying `@trace_async` happens at definition time, but the `async def wrapper` body runs only after its coroutine is awaited or scheduled.
+2. `coroutine = work("ok")` creates a coroutine object **without printing** `async: enter`. This is not an `asyncio.Task`.
+3. `await coroutine` enters the wrapper, awaits the original function, runs `finally`, and returns `"done"`.
+4. `delayed()` has a **synchronous wrapper**. It prints `sync wrapper: called` immediately and returns the undecorated coroutine object. Only `await delayed_coroutine` executes the original `delayed` body. A sync wrapper's `try/finally` around `return func(...)` would **not** cover the actual async execution.
+5. `inspect.iscoroutinefunction(delayed)` returns `False` despite `@wraps` and despite the fact that calling it returns a coroutine; frameworks that inspect callable type can behave differently as a result.
+
+### 11.2 Error propagation and cancellation
+
+- `work("error")` raises `ValueError` from inside the awaited body; the async wrapper's `finally` runs **before** the caller's `except ValueError`. This is the async counterpart of C# `try/finally` around an awaited call.
+- `asyncio.Event()` creates a one-shot signal. In `work("cancel", ready)`, `ready.set()` tells the caller the coroutine actually started, and `await asyncio.Event().wait()` suspends it indefinitely until cancellation. This avoids timing assumptions or arbitrary sleeps in the test.
+- `task = asyncio.create_task(...)` schedules the coroutine as a real `asyncio.Task`. After `await ready.wait()`, `task.cancel()` requests cancellation. The task receives `asyncio.CancelledError` at its suspension point; the wrapper's `finally` executes; then the outer `await task` raises the cancellation.
+- `asyncio.CancelledError` inherits from `BaseException` rather than `Exception` in these supported Python versions; `except Exception` will not accidentally swallow it. Catch cancellation only when you can handle it correctly; normally let it propagate after cleanup.
+- A `finally` block ensures the cleanup *statement is entered* on ordinary unwind, but an asynchronous cleanup `await` can itself fail or be interrupted by an additional cancellation. Do not claim that every cleanup operation is unconditionally guaranteed to complete; use the ownership patterns in Lesson 03 for resources.
+
+**Production rule:** Use a native `async def` wrapper that awaits the original operation when you must surround the coroutine's execution. When decorating both sync and async callables, provide distinct contracts or choose a callable-aware implementation that handles both deliberately. Do **not** assume a decorator is async-safe solely because it forwards `*args` and `**kwargs`.
+
+## 12. Method binding, descriptors and standard-library decorators
+
+Functions stored on Python classes participate in **descriptor-based binding**. You do not need to implement the descriptor protocol for this lesson, but you must understand the practical effect:
+
+- A normal function accessed through an instance becomes a **bound method**; Python supplies the instance as `self`.
+- `@classmethod` creates a descriptor that supplies the **class** as `cls`. In our example, `@track` first wraps the underlying function; `@classmethod` then turns that wrapper into a class method.
+- `@staticmethod` creates a descriptor that leaves the function unbound; Python does not inject `self` or `cls`.
+- `@property` creates a descriptor exposing a getter as an attribute read rather than a call: `greeter.label`, not `greeter.label()`. Think of a C# property getter, but remember Python's attribute access goes through the descriptor protocol.
+- `@lru_cache(maxsize=4)` is a parameterized standard-library decorator from `functools`, implementing bounded memoization. It caches results by argument combinations and exposes `cache_info()` for hits and misses. This is a real example of a library-provided wrapper, not a GoF object decorator.
+
+Here is all of `examples/method_and_stdlib_decorators.py`:
+
+
+
+```python
+"""Function wrappers on methods, descriptors, and standard-library caching."""
+
+from functools import lru_cache, wraps
+
+
+def track(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        print(f"call: {func.__name__}")
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+class Greeter:
+    def __init__(self, prefix: str) -> None:
+        self.prefix = prefix
+
+    @track
+    def greet(self, name: str) -> str:
+        return f"{self.prefix}, {name}"
+
+    @classmethod
+    @track
+    def describe(cls) -> str:
+        return cls.__name__
+
+    @staticmethod
+    @track
+    def version() -> int:
+        return 1
+
+    @property
+    def label(self) -> str:
+        return self.prefix
+
+
+@lru_cache(maxsize=4)
+def normalize(value: str) -> str:
+    print("normalize: computing")
+    return value.strip().upper()
+
+
+def main() -> None:
+    greeter = Greeter("Hello")
+    print("method:", greeter.greet("Ada"))
+    print("class method:", Greeter.describe())
+    print("static method:", Greeter.version())
+    print("property:", greeter.label)
+    print("normalized:", normalize("  abc "))
+    print("cached:", normalize("  abc "))
+    print("cache:", normalize.cache_info().hits, normalize.cache_info().misses)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Run: `python examples/method_and_stdlib_decorators.py`.
+
+**Expected output:**
+
+
+
+```text
+call: greet
+method: Hello, Ada
+call: describe
+class method: Greeter
+call: version
+static method: 1
+property: Hello
+normalize: computing
+normalized: ABC
+cached: ABC
+cache: 1 1
+```
+
+Observe: `greeter.greet("Ada")` calls the tracked wrapper with `self` injected, so the wrapper's `*args` forwards the instance as the first positional argument. `Greeter.describe()` passes `cls` to its wrapped function; `Greeter.version()` does not. The `label` property reads `self.prefix` without parentheses. The second `normalize("  abc ")` returns the cached value; it does not print `normalize: computing` a second time.
+
+**Production cautions for `lru_cache`:** Only cache results when the function is semantically safe to memoize; impure operations and time-sensitive values can return stale or incorrect results. Cache arguments must be hashable. Method caches can retain references to `self` through their keys. The cache data structure is synchronized, but concurrent cache misses can compute the same value more than once. Caching is not an exactly-once execution guarantee. An `async def` function should not normally be wrapped in `lru_cache`, because caching coroutine objects for repeated awaits is incorrect.
+
+## 13. Verification, exercises, and completion standard
+
+From the repository root (after publication), run all demo programs and the unit tests:
+
+
 
 ```bash
-cd lessons/04-decorators
+cd "04. Decorators, Closures and Cross-Cutting Concerns"
 python examples/function_decorators.py
 python examples/closures.py
 python examples/parameterized_decorators.py
 python examples/metadata_and_stacking.py
+python examples/closure_introspection.py
+python examples/typed_decorators.py
+python examples/async_decorators.py
+python examples/method_and_stdlib_decorators.py
 python -m unittest discover -s tests -v
-
-# Optional, when Node.js is installed:
-node examples/closures.js
+# Optional: node examples/closures.js
 ```
 
-The Python demos and tests use the standard library only. The JavaScript example can be executed with Node.js, but it is not a dependency for the Python lessons. The two C# examples are standalone top-level statement programs; paste either one into a **separate** `Program.cs` in a .NET console project. The Python tests do not compile or execute the C# samples.
+The examples need only the Python 3.11+ standard library; the optional JavaScript comparison needs Node.js. Every Python code block above is a standalone, copyable program whose output is checked in the tests; the test suite also verifies that the embedded source matches the demonstration files.
 
-**Exercises:**
+**Exercises (predict, run, and explain):**
 
-1. Change `hello()` to print `"Goodbye"`. Predict what happens before executing: what does the decorator change, and what remains the original function body?
-2. Remove `@log_calls` and instead assign `hello = log_calls(hello)` **after** the function definition. Confirm that the output is unchanged.
-3. Make a second Python function `bye()` with no arguments and apply `@log_calls`. Explain why the same higher-order function can decorate both.
-4. For the C# GoF example, wrap the same `ConsoleLogger` instance with **two** decorators. Predict in which order the wrappers execute before running the code.
+1. Extend the typed `audit` decorator to record errors *without suppressing* them. Compare `try/finally` versus `try/except/raise/finally`.
+2. For `trace_async`, explain the difference between `work("ok")`, `await work("ok")` and `asyncio.create_task(work("ok"))`. Identify which values are coroutine objects, results, and Tasks.
+3. Cancel an in-flight decorated operation and explain why the inner `finally` runs before the outer cancellation handler.
+4. Explain why `inspect.signature` can report the original parameter list while `inspect.signature(..., follow_wrapped=False)` shows `(*args, **kwargs)`.
+5. Use `__closure__` to observe an accumulator's changing value; explain why its state is not safe for unrestricted concurrent mutation.
+6. Reorder `@track` and `@classmethod` and determine why arbitrary decorator ordering is not guaranteed to work: `classmethod` creates a descriptor, not an ordinary function (and behavior can differ by Python release).
+7. Apply `@lru_cache` to an async function and identify why reusing the cached coroutine object on a second await is invalid. Treat this as a **negative demonstration**, not a recommended implementation.
 
-## 10. Production boundaries
-
-These examples deliberately focus on function decoration, lexical capture, metadata, and call forwarding. Runtime introspection (e.g. `__closure__` and `__code__.co_freevars`), type-safe generic decorators (e.g. `ParamSpec`), synchronous versus asynchronous function wrappers, cancellation, and production instrumentation need dedicated treatment. In particular, wrapping an `async def` function with a synchronous `def` wrapper changes the callable's behavior; `functools.wraps` cannot fix coroutine scheduling or exception-handling mistakes.
+**Completion criteria:** This lesson teaches definition-time transformation, argument/result contract, stacked evaluation, closures and cells, metadata, generic typing, synchronous/asynchronous wrapper semantics, cancellation, descriptor binding, caching caveats, and production failure paths. No implementation is hidden in an unshown demo; all snippets and expected outputs are regression-tested. The lesson does not claim to be a complete survey of every decorator in the Python ecosystem.
 
 **Additional cross-language references:** [Python execution model (name binding)](https://docs.python.org/3/reference/executionmodel.html), [Python FAQ on late-bound lambdas](https://docs.python.org/3/faq/programming.html#why-do-lambdas-defined-in-a-loop-with-different-values-all-return-the-same-result), [MDN closures](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Closures), [C# lambda expressions](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/operators/lambda-expressions).
 
-**Official references:** [Python glossary: decorator](https://docs.python.org/3/glossary.html#term-decorator), [Python language reference: function definitions](https://docs.python.org/3/reference/compound_stmts.html#function-definitions), [Python `contextlib`](https://docs.python.org/3/library/contextlib.html).
+**Official references:** [Python glossary: decorator](https://docs.python.org/3/glossary.html#term-decorator), [Python language reference: function definitions](https://docs.python.org/3/reference/compound_stmts.html#function-definitions), [`functools`](https://docs.python.org/3/library/functools.html), [`inspect`](https://docs.python.org/3/library/inspect.html), [`typing`](https://docs.python.org/3/library/typing.html), [`asyncio`](https://docs.python.org/3/library/asyncio.html), [`contextlib`](https://docs.python.org/3/library/contextlib.html).

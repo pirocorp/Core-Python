@@ -11,6 +11,7 @@ See [CURRICULUM.md](CURRICULUM.md) for the nine initial topics and their Python-
 1. [CPython Memory Model and the GIL](01.%20CPython%20Memory%20Model%20and%20the%20GIL/README.md) — complete lesson with runnable examples, tests, diagram, and explanations.
 2. [Threads, Processes, and Async I/O](02.%20Threads,%20Processes%20and%20Async%20IO/README.md) — blocking I/O, thread/process pools, event-loop programming, runnable examples and tests.
 3. [Context Managers and Resource Safety](03.%20Context%20Managers%20and%20Resource%20Safety/README.md) — deterministic cleanup, exception handling, ExitStack, async with, runnable examples and tests.
+4. [Decorators, Closures and Cross-Cutting Concerns](04.%20Decorators,%20Closures%20and%20Cross-Cutting%20Concerns/README.md) — decorators, closure cells, metadata, typed and async wrappers, method binding, and production safety with runnable examples and tests.
 
 The **root of this repository** contains each developed course lesson as its own numbered, human-readable directory. Lessons awaiting implementation remain in `lessons/` as outlines. This makes practical lessons visible immediately in GitHub's file browser.
 
