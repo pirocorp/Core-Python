@@ -7,6 +7,14 @@ on:
       - "02. Threads, Processes and Async IO/**"
       - "03. Context Managers and Resource Safety/**"
       - "04. Decorators, Closures and Cross-Cutting Concerns/**"
+      - "05. Abstract Base Classes and Interface-Like Contracts/**"
+      - "06. Inheritance, Multiple Inheritance and MRO/**"
+      - "07. Runtime Polymorphism and Duck Typing/**"
+      - "08. Composition and Object Collaboration/**"
+      - "09. Encapsulation, Properties and Python Conventions/**"
+      - "README.md"
+      - "CURRICULUM.md"
+      - "tests/**"
       - ".github/workflows/python-course-tests.yml"
   push:
     branches: [main]
@@ -15,6 +23,14 @@ on:
       - "02. Threads, Processes and Async IO/**"
       - "03. Context Managers and Resource Safety/**"
       - "04. Decorators, Closures and Cross-Cutting Concerns/**"
+      - "05. Abstract Base Classes and Interface-Like Contracts/**"
+      - "06. Inheritance, Multiple Inheritance and MRO/**"
+      - "07. Runtime Polymorphism and Duck Typing/**"
+      - "08. Composition and Object Collaboration/**"
+      - "09. Encapsulation, Properties and Python Conventions/**"
+      - "README.md"
+      - "CURRICULUM.md"
+      - "tests/**"
       - ".github/workflows/python-course-tests.yml"
 
 jobs:
@@ -37,3 +53,15 @@ jobs:
         run: python -m unittest discover -s "03. Context Managers and Resource Safety/tests" -v
       - name: Test Lesson 04
         run: python -m unittest discover -s "04. Decorators, Closures and Cross-Cutting Concerns/tests" -v
+      - name: Test Lesson 05
+        run: python -m unittest discover -s "05. Abstract Base Classes and Interface-Like Contracts/tests" -v
+      - name: Test Lesson 06
+        run: python -m unittest discover -s "06. Inheritance, Multiple Inheritance and MRO/tests" -v
+      - name: Test Lesson 07
+        run: python -m unittest discover -s "07. Runtime Polymorphism and Duck Typing/tests" -v
+      - name: Test Lesson 08
+        run: python -m unittest discover -s "08. Composition and Object Collaboration/tests" -v
+      - name: Test Lesson 09
+        run: python -m unittest discover -s "09. Encapsulation, Properties and Python Conventions/tests" -v
+      - name: Test Course Index and Publication Integrity
+        run: python -m unittest discover -s tests -v

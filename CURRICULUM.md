@@ -6,7 +6,7 @@
 ## Repository organization
 
 - **Developed lessons:** numbered, human-readable directories at the repository root, so they appear in the main GitHub file listing.
-- **Planned topics:** outlines in `lessons/`; promote a topic to the repository root when it has substantive learner-facing documentation and executable exercises.
+- **Future topics:** draft outlines may be kept separately until sufficiently complete for publication at the repository root.
 - Lesson numbering and the curriculum are maintained consistently when a topic is published.
 - Internal lesson resources (examples, tests, diagrams) stay inside that lesson's directory.
 
@@ -18,11 +18,11 @@
 | [02](02.%20Threads,%20Processes%20and%20Async%20IO/README.md) | Threads, Processes, and Async I/O | OS threads, ThreadPoolExecutor, ProcessPoolExecutor, asyncio, TaskGroup and blocking-I/O pitfalls |
 | [03](03.%20Context%20Managers%20and%20Resource%20Safety/README.md) | Context Managers and Resource Safety | Files, `__enter__` / `__exit__`, exception suppression, `contextlib`, `ExitStack`, async context managers |
 | [04](04.%20Decorators,%20Closures%20and%20Cross-Cutting%20Concerns/README.md) | Decorators, Closures, and Cross-Cutting Concerns | Decorator factories, closure cells, wraps and stacking, ParamSpec typing, sync/async wrappers, method binding, cancellation |
-| [05](lessons/05-abcs-and-duck-typing/README.md) | Abstract Base Classes and Interface-Like Contracts | `Shape(ABC)`, `Circle`, payment gateways |
-| [06](lessons/06-inheritance-and-mro/README.md) | Inheritance, Multiple Inheritance, and MRO | `Animal` / `Dog`, `Bird` / `Flyable` |
-| [07](lessons/07-polymorphism/README.md) | Runtime Polymorphism and Duck Typing | `Bird.speak`, `Duck.speak`, `make_bird_speak` |
-| [08](lessons/08-composition/README.md) | Composition and Object Collaboration | `Engine` composed into `Car` |
-| [09](lessons/09-encapsulation-and-properties/README.md) | Encapsulation, Properties, and Python Conventions | `Student`, `@property`, validated setter |
+| [05](05.%20Abstract%20Base%20Classes%20and%20Interface-Like%20Contracts/README.md) | Abstract Base Classes and Interface-Like Contracts | `Shape(ABC)`, `Circle`, payment gateways |
+| [06](06.%20Inheritance%2C%20Multiple%20Inheritance%20and%20MRO/README.md) | Inheritance, Multiple Inheritance, and MRO | `Animal` / `Dog`, `Bird` / `Flyable` |
+| [07](07.%20Runtime%20Polymorphism%20and%20Duck%20Typing/README.md) | Runtime Polymorphism and Duck Typing | `Bird.speak`, `Duck.speak`, `make_bird_speak` |
+| [08](08.%20Composition%20and%20Object%20Collaboration/README.md) | Composition and Object Collaboration | `Engine` composed into `Car` |
+| [09](09.%20Encapsulation%2C%20Properties%20and%20Python%20Conventions/README.md) | Encapsulation, Properties, and Python Conventions | `Student`, `@property`, validated setter |
 
 ## Quality standard for each lesson
 
@@ -41,7 +41,7 @@
 - **Factorial:** use a correctly initialized accumulator and a defined policy for negative inputs. A nominal thread-switch interval does not guarantee equal CPU time or prevent starvation.
 - **Concurrency:** compare CPU-heavy and I/O-heavy workloads using verified Python exercises, not preliminary notes.
 - **Decorators:** teach decorator factories and wrappers, including `functools.wraps`, with validated examples.
-- **OOP:** deepen method-resolution order, duck typing, abstract base classes and property behavior beyond generic OOP definitions.
+- **OOP:** demonstrate and test method-resolution order, duck typing, abstract base classes, composition, descriptors and property behavior beyond generic OOP definitions.
 - **Dataclasses:** included in the initial outline only as a possible extension; develop as its own topic if appropriate.
 
 ## Future directions
