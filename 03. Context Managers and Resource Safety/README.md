@@ -426,14 +426,45 @@ C# comparison: `issubclass(actual, allowed)` is conceptually like `allowed.IsAss
 
 ### 5.5 `run_exception()`: full execution trace
 
-The executable demonstration is [`run_exception(suppress)`](examples/custom_manager.py). Run **both paths**:
+The exact `run_exception()` function from the demo appears below. The `MyContextManager` class it uses was already defined in Section 5.1; this standalone snippet imports that **same implementation** so you can execute it directly:
 
 ```python
-from examples.custom_manager import run_exception
+from examples.custom_manager import MyContextManager
+
+def run_exception(suppress: bool) -> list[str]:
+    events: list[str] = []
+
+    # Python's 'try/except' is the equivalent of C# 'try/catch'.
+    try:
+        # If suppress=True, the manager stores the ValueError CLASS.
+        # If suppress=False, it stores None and will NOT suppress errors.
+        with MyContextManager(
+            "guard", events, suppress_type=ValueError if suppress else None
+        ):
+            events.append("body:raise")
+
+            # 1. 'raise' is Python's equivalent of C# 'throw'.
+            # 2. Python interrupts the 'with' body at this line.
+            # 3. Before reaching the outer 'except', Python calls the
+            #    active manager's __exit__(ValueError, exception, traceback).
+            # 4. __exit__ returns True (suppress=True) or False (suppress=False).
+            raise ValueError("demo failure")
+
+    except ValueError:
+        # Reached ONLY when __exit__ returned False (or another falsy value).
+        # When __exit__ returned True, Python ALREADY suppressed the error.
+        events.append("caught:ValueError")
+
+    # In both cases execution eventually continues here.
+    # The remaining statements inside the 'with' body are NOT resumed.
+    events.append("after:with")
+    return events
 
 print("suppress=False:", run_exception(False))
 print("suppress=True: ", run_exception(True))
 ```
+
+The function above reproduces the two paths of [`examples/custom_manager.py`](examples/custom_manager.py):
 
 **Expected output:**
 
@@ -509,10 +540,50 @@ print(events)
 - The variables `outer` and `inner` receive the strings returned by the advanced manager's `__enter__()`: `"resource:outer"` and `"resource:inner"`. This explains the `body:resource:outer,resource:inner` event.
 - An early `return` still calls `__exit__()` **before the function actually returns**.
 
-Two other paths in `examples/custom_manager.py` demonstrate that last rule and a **failed entry**:
+The demo's real **`FailingEnter`, `run_failed_enter()` and `run_early_return()`** implementations are reproduced below. The extended `MyContextManager` from Section 5.1 is imported rather than redefined:
 
 ```python
-from examples.custom_manager import run_early_return, run_failed_enter
+from types import TracebackType
+from examples.custom_manager import MyContextManager
+
+class FailingEnter:
+    """Demonstrate that __exit__ is NOT called if __enter__ raises."""
+
+    def __init__(self, events: list[str]) -> None:
+        self.events = events
+
+    def __enter__(self) -> None:
+        self.events.append("enter:failed")
+        raise RuntimeError("acquisition failed")
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        exc_traceback: TracebackType | None,
+    ) -> bool:
+        self.events.append("exit:should-not-run")
+        return False
+
+def run_failed_enter() -> list[str]:
+    events: list[str] = []
+    try:
+        with FailingEnter(events):
+            events.append("body:never-runs")
+    except RuntimeError:
+        events.append("caught:RuntimeError")
+    return events
+
+def run_early_return() -> list[str]:
+    events: list[str] = []
+
+    def operation() -> str:
+        with MyContextManager("early", events):
+            events.append("body:return")
+            return "returned"
+
+    events.append(operation())
+    return events
 
 print("early return:", run_early_return())
 print("failed entry:", run_failed_enter())
