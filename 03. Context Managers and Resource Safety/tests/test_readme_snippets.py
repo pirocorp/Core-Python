@@ -58,6 +58,71 @@ class ReadmeSnippetTests(unittest.TestCase):
                 "def run_optional(enabled:",
                 "\n\ndef main()",
             ),
+            (
+                "file_resources.py",
+                "def write_and_read(",
+                "\\n\\ndef main(",
+            ),
+            (
+                "custom_manager.py",
+                "class FailingEnter:",
+                "\\n\\ndef run_nested(",
+            ),
+            (
+                "custom_manager.py",
+                "def run_nested(",
+                "\\n\\ndef run_exception(",
+            ),
+            (
+                "custom_manager.py",
+                "def run_exception(",
+                "\\n\\ndef run_failed_enter(",
+            ),
+            (
+                "custom_manager.py",
+                "def run_failed_enter(",
+                "\\n\\ndef run_early_return(",
+            ),
+            (
+                "custom_manager.py",
+                "def run_early_return(",
+                "\\n\\ndef main(",
+            ),
+            (
+                "exit_stack.py",
+                "@contextmanager\\ndef acquire(",
+                "\\n\\ndef run_batch(",
+            ),
+            (
+                "exit_stack.py",
+                "def run_batch(",
+                "\\n\\ndef main(",
+            ),
+            (
+                "async_managers.py",
+                "class AsyncConnection:",
+                "\\n\\n# @asynccontextmanager",
+            ),
+            (
+                "async_managers.py",
+                "async def run_connection(",
+                "\\n\\nasync def run_async_stack(",
+            ),
+            (
+                "async_managers.py",
+                "async def run_async_stack(",
+                "\\n\\nasync def run_async_error(",
+            ),
+            (
+                "async_managers.py",
+                "async def run_async_error(",
+                "\\n\\nasync def run_cancellation(",
+            ),
+            (
+                "async_managers.py",
+                "async def run_cancellation(",
+                "\\n\\nasync def main(",
+            ),
         ]
         for filename, start_marker, end_marker in embedded_functions:
             source = (LESSON / "examples" / filename).read_text(encoding="utf-8")
