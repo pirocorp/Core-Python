@@ -590,36 +590,63 @@ enabled: ['acquire:optional', 'use:resource:optional', 'release:optional']
 disabled: ['use:direct']
 ```
 
-## 8. `ExitStack`: acquire resources dynamically and safely
+## 8. `ExitStack`: dynamically managed resources
 
-A fixed number of resources can use nested `with` statements. But an API might need to acquire **N** resources only known at runtime. [`examples/exit_stack.py`](examples/exit_stack.py) uses `contextlib.ExitStack`:
+When the number of resources is fixed, nested `with` statements are sufficient. In a server or batch process, you may need to acquire an unknown number of connections or handles. [`examples/exit_stack.py`](examples/exit_stack.py) demonstrates how `contextlib.ExitStack` keeps track of everything **successfully entered** and later runs the corresponding exit methods in **reverse order**.
+
+### 8.1 Start from the actual `run_batch()` demo
 
 ```python
-from contextlib import ExitStack
-from examples.exit_stack import acquire  # The manager defined in this lesson.
+from examples.exit_stack import run_batch
 
-events: list[str] = []
+events, acquired = run_batch(("file", "db", "socket"))
+print("success acquired:", acquired)
+print("success events:", " | ".join(events))
 
-with ExitStack() as stack:
-    resources = []
-    for name in ("file", "db", "socket"):
-        resource = stack.enter_context(acquire(name, events))
-        resources.append(resource)
-    events.append("work")
-
-print(events)
-# ['acquire:file', 'acquire:db', 'acquire:socket', 'work',
-#  'release:socket', 'release:db', 'release:file']
+events, acquired = run_batch(("file", "db", "socket"), fail_on="db")
+print("failure acquired:", acquired)
+print("failure events:", " | ".join(events))
 ```
 
-`acquire` is defined in `examples/exit_stack.py`; it is **not** a Python built-in. `events` records the acquisition and cleanup order. `stack.enter_context(manager)` calls its `__enter__()` and registers its `__exit__()` to run when the stack is closed.
-
-If acquisition of `db` fails, `ExitStack` releases the previously acquired `file` even though the code never reaches the work step. The manager that **failed to enter** is responsible for cleaning up its own partial acquisition. The runnable demo prints:
+**Expected output:**
 
 ```text
-Partial acquisition: acquire:file | acquire:db | release:file | error:cannot acquire db
-Acquired before cleanup: ['file']
+success acquired: ['file', 'db', 'socket']
+success events: acquire:file | acquire:db | acquire:socket | work:file,db,socket | release:socket | release:db | release:file
+failure acquired: ['file']
+failure events: acquire:file | acquire:db | release:file | error:cannot acquire db
 ```
+
+The central portion of the **real `run_batch()` function** is:
+
+```text
+with ExitStack() as stack:
+    for name in names:
+        resource = stack.enter_context(
+            acquire(name, events, fail=(name == fail_on))
+        )
+        acquired.append(resource)
+    events.append(f"work:{','.join(acquired)}")
+```
+
+Here `acquire()` is a generator-based context manager **defined in `examples/exit_stack.py`**, not a built-in Python function. It raises `RuntimeError` when `fail=True`. The surrounding function catches that failure with `except RuntimeError as exc:` *after* the entered resources are unwound.
+
+### 8.2 New Python syntax in the demo
+
+| Syntax | Explanation | C# comparison |
+|---|---|---|
+| `names: tuple[str, ...]` | A tuple containing any number of strings; `...` inside this type annotation means variable tuple length | An immutable-style sequence input, such as an array or read-only list |
+| `("file", "db", "socket")` | A **tuple literal**, commonly used for fixed sequences | Like a small fixed collection |
+| `events, acquired = run_batch(...)` | **Unpacking:** assign the two elements returned by the function to two names | Deconstructing a tuple: `(events, acquired) = RunBatch(...)` |
+| `for name in names:` | Iterate over the sequence, with indentation defining the loop body | `foreach (var name in names)` |
+| `name == fail_on` | Compare values for equality; do **not** confuse with `is`, which checks object identity | `name == failOn` |
+| `fail=(name == fail_on)` | Pass the Boolean comparison result as a **named argument** to `acquire()` | `fail: name == failOn` |
+| `','.join(acquired)` | Join string elements into one string separated by commas | `string.Join(",", acquired)` |
+| `except RuntimeError as exc:` | Catch an exception **and bind its instance** to `exc` | `catch (Exception exc)` (with an appropriate concrete type) |
+
+The annotation `-> tuple[list[str], list[str]]` on `run_batch()` means “returns a **two-element tuple** containing two lists of strings.” It is descriptive, not enforced at runtime.
+
+**How cleanup works:** `stack.enter_context(manager)` calls the manager's `__enter__()` and registers `__exit__()` only if entry succeeds. If `db` fails, the previously entered `file` is released even though the loop never reaches `socket`. The **failing manager itself** must clean up any partial acquisition made before its own `__enter__()` failed.
 
 ```mermaid
 flowchart LR
@@ -633,9 +660,9 @@ flowchart LR
     H --> I["Propagate / handle error"]
 ```
 
-`ExitStack.enter_context(manager)` enters a context manager and registers its exit method. `ExitStack.callback(...)` can register additional cleanup callbacks, but **callbacks registered by `callback` do not receive exception information and cannot suppress exceptions**. Do not confuse them with `push` / `enter_context`.
+**C# analogy:** dynamically collecting `IDisposable` instances and disposing them in reverse order during `finally`, including partial startup failure. `ExitStack` provides that behavior directly.
 
-**C# analogy:** a stack of disposable resources unwound in reverse order, with safe cleanup when a later acquisition fails. Python provides the abstraction directly in the standard library.
+Also note: `ExitStack.callback(callback)` registers a cleanup function that receives **no exception details** and cannot suppress an exception. `push()` and `enter_context()` register different kinds of exit behavior. For normal managers, use `enter_context()`.
 
 ## 9. `async with`: asynchronous acquisition and cleanup
 
