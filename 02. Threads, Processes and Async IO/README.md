@@ -110,6 +110,75 @@ Python-specific details:
 
 For `--requests 3 --delay 0.2`, sequential waiting is *approximately* `0.6s` and overlapping waits *approximately* `0.2s`, plus scheduling overhead. **Do not assert those numbers**. Real I/O and worker scheduling will differ.
 
+### 3.1 Read the actual OS-thread demo implementation
+
+The short `worker` snippet above introduces `Thread`. The **real** [`threading_io.py`](examples/threading_io.py) adds a thread-safe `Queue` so every worker can deliver either a result or an exception. This is the actual `run_sequential()` and `run_threads()` implementation, with the helper functions imported from that same demo:
+
+```python
+import threading
+from queue import Queue
+from examples.threading_io import simulated_io, validate
+
+def run_sequential(requests: int, delay: float) -> list[str]:
+    validate(requests, delay)
+    return [simulated_io(i, delay) for i in range(requests)]
+
+
+def run_threads(requests: int, delay: float) -> list[str]:
+    validate(requests, delay)
+    # Queue is a thread-safe communication channel.
+    messages: Queue[tuple[int, str | None, Exception | None]] = Queue()
+
+    # '-> None' means no meaningful return value (similar to C# 'void').
+    # Functions with no explicit 'return' still return None in Python.
+    def worker(index: int) -> None:
+        try:
+            messages.put((index, simulated_io(index, delay), None))
+        except Exception as exc:
+            # Thread.join() does NOT automatically re-raise a worker exception.
+            messages.put((index, None, exc))
+
+    # Thread(...) constructs a Thread object but does not start it.
+    # 'target=' and 'args=' are keyword arguments to the constructor.
+    # target=worker passes the function itself; worker(i) would CALL it now.
+    # args=(i,) is a one-element tuple: the comma distinguishes it from (i).
+    # When started, each thread executes worker(i).
+    threads = [
+        threading.Thread(target=worker, args=(i,))
+        for i in range(requests)
+    ]
+    for thread in threads:
+        thread.start()  # Schedule the OS thread.
+    for thread in threads:
+        thread.join()  # Wait for it to finish; not the same as await.
+
+    results: list[str | None] = [None] * requests
+    for _ in range(requests):
+        index, value, error = messages.get_nowait()
+        if error is not None:
+            raise RuntimeError(f"Worker {index} failed") from error
+        results[index] = value
+
+    if any(value is None for value in results):
+        raise RuntimeError("A worker did not produce a result")
+    return [value for value in results if value is not None]
+
+print("sequential:", run_sequential(3, 0))
+print("threads:   ", run_threads(3, 0))
+```
+
+**Expected output (the test uses zero delay for repeatability):**
+
+```text
+sequential: ['request-0:ok', 'request-1:ok', 'request-2:ok']
+threads:    ['request-0:ok', 'request-1:ok', 'request-2:ok']
+```
+
+**How to read it:** `[simulated_io(i, delay) for i in range(requests)]` is a **list comprehension**, comparable to C# LINQ `Enumerable.Range(...).Select(...).ToList()`. In the threaded path, `def worker(index):` is a **nested function** used as the `target` of each `Thread`. Each worker writes `(index, value, None)` or `(index, None, exc)` into `Queue` — a thread-safe producer/consumer channel. `thread.start()` launches the worker; `thread.join()` waits for completion. The loop reading `get_nowait()` reconstructs **input order**, rather than assuming worker completion order. `raise RuntimeError(...) from error` is Python's **exception chaining**, analogous to including an inner exception in C#; a plain `join()` does not rethrow worker failures.
+
+**Why import `simulated_io` and `validate`?** Both are implemented in [`examples/threading_io.py`](examples/threading_io.py); `simulated_io` waits using `time.sleep(delay)` and returns `f"request-{index}:ok"`. `validate` checks that `requests >= 1` and `delay` is finite and non-negative. These are ordinary helpers, not hidden Python concurrency primitives. You can inspect their implementations in that single linked file.
+
+
 ### Shared state still requires synchronization
 
 Even with a GIL, multi-step business operations are not automatically atomic:
@@ -118,6 +187,8 @@ Even with a GIL, multi-step business operations are not automatically atomic:
 import threading
 
 balance_lock = threading.Lock()
+balance = 10  # Example account balance; defined so the snippet is runnable.
+amount = 3   # Example debit.
 
 # 'with' uses the lock's context manager protocol:
 # it acquires the lock on entry and always releases it on exit.
@@ -125,6 +196,8 @@ balance_lock = threading.Lock()
 with balance_lock:
     if balance >= amount:
         balance -= amount
+
+print(balance)  # 7
 ```
 
 **Python syntax note — `with balance_lock:`:** `with` does not create a lock. It enters the context managed by the existing `threading.Lock` object: `__enter__()` acquires the lock before executing the indented block, and `__exit__()` releases it afterward, including when an exception occurs. For this specific lock, the behavior is equivalent to `balance_lock.acquire()` followed by a `try/finally` that calls `balance_lock.release()`. This is similar to C# `lock (balanceLock) { ... }`. Not every `with` statement acquires a lock: context managers can also manage files, transactions, pools, and other resources. See Lesson 03 for the `__enter__`/`__exit__` protocol in depth.
@@ -144,7 +217,7 @@ lock (balanceLock)
 
 The C# `lock` statement automatically exits the critical section, including if an exception occurs. Python's `with balance_lock:` uses the lock's context-manager methods to achieve the analogous behavior; both only synchronize threads using that same lock object.
 
-Here `balance` and `amount` are assumed to already exist: this is a **short illustrative fragment**, not a standalone bank-account implementation. In a real financial system, a local thread lock does not coordinate **different processes or machines**; database transactions or distributed coordination may be required.
+The Python sample initializes `balance = 10` and `amount = 3`, so you can run it as written; the **C# illustrative fragment** still assumes those variables and a `balanceLock` already exist. In a real financial system, a local thread lock does not coordinate **different processes or machines**; database transactions or distributed coordination may be required.
 
 ## 4. Managing threads with `ThreadPoolExecutor`
 
@@ -188,48 +261,112 @@ This illustrates the **resource-lifetime** analogy, not an equivalent C# thread 
 
 **C# comparison:** `Future` and `.result()` resemble the notion of a result that arrives later, but `.result()` here is **blocking**. It is not an equivalent replacement for `await someTask` in C#. Thread-pool CPU work is still subject to GIL behavior in standard CPython.
 
+### 4.1 The real thread-pool implementation
+
+In the runnable [`thread_pool_io.py`](examples/thread_pool_io.py), `run_pool()` does **not** use the square-calculation function above. It actually submits the **same simulated I/O operation** from Section 3 for every request:
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+from examples.threading_io import simulated_io, validate
+
+def run_pool(requests: int, delay: float, workers: int) -> list[str]:
+    validate(requests, delay)
+    if workers < 1:
+        raise ValueError("workers must be >= 1")
+
+    # 'with' manages the pool lifetime and waits for work on exit.
+    # 'as executor' binds the result of __enter__() to this variable.
+    # For ThreadPoolExecutor, __enter__() returns the executor object itself.
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        # submit(function, *arguments) schedules a callable and returns a Future.
+        futures = [
+            executor.submit(simulated_io, index, delay)
+            for index in range(requests)
+        ]
+        # future.result() waits for completion and re-raises worker exceptions.
+        # Retrieving futures in input order also restores deterministic results.
+        return [future.result() for future in futures]
+
+print(run_pool(4, 0, workers=2))
+```
+
+```text
+['request-0:ok', 'request-1:ok', 'request-2:ok', 'request-3:ok']
+```
+
+**Execution:** the comprehension creates one `Future` per submitted request; `executor.submit(simulated_io, index, delay)` passes the function itself, plus its arguments. A future is similar in purpose to a C# `Task<T>`, but **`future.result()` blocks** the caller. The second comprehension waits for the results **in submission order**; a worker failure is re-raised here. `with ThreadPoolExecutor(...)` ensures the pool is shut down after its tasks complete.
+
+**Dependency note:** `thread_pool_io.py` imports `simulated_io` from `threading_io.py`. Its direct script command in Section 2 works because Python adds the `examples/` directory to the import path when running that file. The copyable snippet above uses `from examples.threading_io import ...` from the **lesson root** instead, so it works without modifying `sys.path` manually.
+
+
 ## 5. CPU parallelism with processes
 
 [`examples/cpu_pool_comparison.py`](examples/cpu_pool_comparison.py) runs the **same** pure-Python workload (1) sequentially, (2) in a `ThreadPoolExecutor`, and (3) in a `ProcessPoolExecutor`.
 
 ```python
+# Save as a real .py file before running: spawn-based workers import its module.
 import multiprocessing
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
 def cpu_work(iterations: int) -> int:
+    """Deliberately CPU-bound Python loop with a deterministic result."""
+    if iterations < 0:
+        raise ValueError("iterations must be >= 0")
     total = 0
     for i in range(iterations):
-        total += i * i
+        total += (i % 97) * (i % 89)
     return total
 
-# list[int] is a return type hint: a list whose items should be integers.
-# Like C# List<int>, but Python does not enforce this annotation at runtime.
-def run_processes() -> list[int]:
-    # get_context("spawn") chooses how later worker processes are started.
-    # It does NOT start a process here; "spawn" means a fresh interpreter.
-    context = multiprocessing.get_context("spawn")
-    # Create a pool that can run up to 2 worker processes at a time.
-    # mp_context=context tells the pool to start workers with "spawn".
-    # 'as executor' binds the result of __enter__() to the variable.
-    # 'with' automatically waits for submitted tasks and shuts down the pool.
-    with ProcessPoolExecutor(max_workers=2, mp_context=context) as executor:
-        # map() submits work for both inputs; list() collects results in input order.
-        return list(executor.map(cpu_work, [500_000, 500_000]))
+def validate(iterations: int, jobs: int) -> None:
+    if iterations < 0 or jobs < 1:
+        raise ValueError("iterations must be >= 0 and jobs must be >= 1")
 
-# __name__ is automatically set to "__main__" when run as a script.
-# When imported, it is the module name instead; this block is skipped.
-# This guard prevents spawned worker imports from starting another pool.
+def run_sequential(iterations: int, jobs: int) -> list[int]:
+    validate(iterations, jobs)
+    return [cpu_work(iterations) for _ in range(jobs)]
+
+def run_threads(iterations: int, jobs: int) -> list[int]:
+    validate(iterations, jobs)
+    with ThreadPoolExecutor(max_workers=jobs) as executor:
+        return list(executor.map(cpu_work, [iterations] * jobs))
+
+def run_processes(iterations: int, jobs: int) -> list[int]:
+    validate(iterations, jobs)
+    # Each worker is a separate process with its own interpreter and memory.
+    # get_context("spawn") returns a context for the fresh-interpreter start method.
+    # It does NOT start any worker yet and avoids relying on Unix 'fork'.
+    context = multiprocessing.get_context("spawn")
+    # Create a pool with up to 'jobs' separate worker processes.
+    # mp_context=context makes it use the selected "spawn" start method.
+    # 'as executor' receives the pool object returned by __enter__().
+    # Leaving 'with' waits for submitted work and shuts down the pool.
+    with ProcessPoolExecutor(max_workers=jobs, mp_context=context) as executor:
+        # [iterations] * jobs repeats this input 'jobs' times (for example, [5] * 2 -> [5, 5]).
+        # map(cpu_work, inputs) schedules cpu_work(value) for each input.
+        # The result iterator preserves input order, even if workers finish out of order.
+        # list(...) consumes results (possibly waiting or raising a worker exception).
+        # return passes the final list[int] back to the caller.
+        return list(executor.map(cpu_work, [iterations] * jobs))
+
 if __name__ == "__main__":
-    print(run_processes())  # Call the function and print its returned list.
+    serial = run_sequential(100, 2)
+    threaded = run_threads(100, 2)
+    processes = run_processes(100, 2)
+    print("All three results match:", serial == threaded == processes)
 ```
 
-**Python syntax note — `with ProcessPoolExecutor(...) as executor:`:** `ProcessPoolExecutor` constructs a **process-pool manager**, not an ordinary OS thread. `max_workers=2` sets a limit of **two worker processes**; it does not mean only two tasks can ever be submitted. `mp_context=context` tells the pool to use the `spawn` configuration selected above. The `with` statement calls the pool's `__enter__()`, and `as executor` binds its result (for this class, **the pool object itself**) to the name `executor`. Tasks are submitted when `executor.map(...)` is used; constructing the executor does **not necessarily** start all workers immediately. The process pool serializes submitted inputs/results across separate process memory spaces. When control exits the `with` block, including during an exception, `__exit__()` calls `shutdown(wait=True)` to wait for submitted work and release pool resources. This is **not** a guarantee that all submitted work is forcibly canceled on an exception.
+**Why this is a different example from the previous version:** The **actual** [`cpu_pool_comparison.py`](examples/cpu_pool_comparison.py) uses `(i % 97) * (i % 89)` for its deterministic pure-Python CPU workload, rather than `i * i`. The three modes all run **the same `cpu_work` function**, so results can be compared meaningfully. The complete source for the worker, validation, sequential, threaded and process variants appears above. No source demo algorithm was changed.
 
-**Python syntax note — `return list(executor.map(cpu_work, [500_000, 500_000]))`:** This is three operations combined into one expression:
+**Run rule:** Unlike the other short snippets, the process example **must be saved as a real Python script** and executed using `python your_script.py`; it cannot reliably run directly inside an interactive REPL or `exec(...)` because spawned workers must import the main module and pickle the module-level `cpu_work` function. The `if __name__ == "__main__":` guard is essential. Alternatively use the **existing standalone demo** `python examples/cpu_pool_comparison.py --iterations 100 --jobs 2` (which also measures elapsed time and prints runtime details). Its successful comparison prints `Same results: True` and the copyable sample above prints `All three results match: True`. 
 
-1. `executor.map(cpu_work, [500_000, 500_000])` schedules **two separate calls** to `cpu_work(500000)`. The name `cpu_work` refers to the function without invoking it. The underscores in `500_000` are digit separators for readability; the value is still the integer `500000`.
+
+**Python syntax note — `with ProcessPoolExecutor(...) as executor:`:** `ProcessPoolExecutor` constructs a **process-pool manager**, not an ordinary OS thread. `max_workers=jobs` sets a limit of **`jobs` worker processes**; it does not mean only two tasks can ever be submitted. `mp_context=context` tells the pool to use the `spawn` configuration selected above. The `with` statement calls the pool's `__enter__()`, and `as executor` binds its result (for this class, **the pool object itself**) to the name `executor`. Tasks are submitted when `executor.map(...)` is used; constructing the executor does **not necessarily** start all workers immediately. The process pool serializes submitted inputs/results across separate process memory spaces. When control exits the `with` block, including during an exception, `__exit__()` calls `shutdown(wait=True)` to wait for submitted work and release pool resources. This is **not** a guarantee that all submitted work is forcibly canceled on an exception.
+
+**Python syntax note — `return list(executor.map(cpu_work, [iterations] * jobs))`:** This is three operations combined into one expression in the **real demo**:
+
+1. `[iterations] * jobs` creates a list with `jobs` copies of the input count. For example `[100] * 2` becomes `[100, 100]`. `executor.map(cpu_work, ...)` submits one call for each input. The name `cpu_work` is a **function object**, not the result of calling it. Python numeric literals such as `500_000` may still use underscores as optional digit separators.
 2. `executor.map(...)` provides an **iterator of results**, ordered like the input values even if workers finish in a different order. `list(...)` consumes that iterator and builds a `list[int]`; consuming the results may **block** while workers are still running or raise an exception from a failed worker.
-3. `return` sends that finished list back from `run_processes()`. With `[500_000, 500_000]`, it contains **two integers** (the calculated values), not two process objects.
+3. `return` sends that finished list back from `run_processes(iterations, jobs)`. With `iterations=100` and `jobs=2`, it contains **two integers** from the same calculation, not process objects.
 
 **C# syntax comparison — only the mapping and collection operations:**
 
@@ -356,22 +493,40 @@ if __name__ == "__main__":
 Compare two different execution patterns:
 
 ```python
-# Sequential: the second coroutine is not awaited until the first finishes.
-first_result = await simulated_request()
-second_result = await simulated_request()
-print(first_result, second_result)  # ok ok; ~0.4s plus overhead
+import asyncio
 
-# Concurrent: first schedule both tasks, then await their results.
-first = asyncio.create_task(simulated_request())
-second = asyncio.create_task(simulated_request())
-print(await first, await second)    # ok ok; ~0.2s plus overhead
+async def simulated_request() -> str:
+    await asyncio.sleep(0.2)
+    return "ok"
+
+async def compare() -> None:
+    # Sequential: second request starts only after the first completes.
+    first_result = await simulated_request()
+    second_result = await simulated_request()
+    print(first_result, second_result)  # ok ok; approximately 0.4s
+
+    # Concurrent: schedule both tasks before awaiting either result.
+    first = asyncio.create_task(simulated_request())
+    second = asyncio.create_task(simulated_request())
+    print(await first, await second)    # ok ok; approximately 0.2s
+
+asyncio.run(compare())
 ```
 
 If the intention is to **wait for multiple results together** more explicitly, `asyncio.gather` is another option:
 
 ```python
-results = await asyncio.gather(simulated_request(), simulated_request())
-print(*results)  # ok ok; '*' unpacks the results as print() arguments
+import asyncio
+
+async def simulated_request() -> str:
+    await asyncio.sleep(0.2)
+    return "ok"
+
+async def main() -> None:
+    results = await asyncio.gather(simulated_request(), simulated_request())
+    print(*results)  # ok ok; '*' unpacks results as print arguments.
+
+asyncio.run(main())
 ```
 
 Unlike C# `Task.WhenAll`, Python `gather` has its own exception/cancellation behavior. For structured failure handling, see the `TaskGroup` section below. These timings are **illustrative only**, not correctness requirements.
@@ -438,6 +593,71 @@ These C# `async Task<string>` methods normally begin executing when called, whil
 - Async tasks are **cooperatively** scheduled: a task that runs CPU-heavy Python code without reaching an `await` can block other tasks on the same event loop.
 
 **C# comparison:** Python `async`/`await` looks familiar, but `asyncio` is an event-loop-driven concurrency API. A Python coroutine or `Task` is not automatically a thread-pool operation; `asyncio.sleep()` yields while `time.sleep()` blocks the current thread.
+
+### 6.1 Complete `asyncio` strategies from the runnable demo
+
+The simplified examples above teach syntax, but the real [`asyncio_io.py`](examples/asyncio_io.py) implements **three distinct functions**. All of the important source is reproduced here. The shared `validate()` function, imported from that demo, checks the request count and delay.
+
+```python
+import asyncio
+from examples.asyncio_io import validate
+
+async def simulated_io(index: int, delay: float) -> str:
+    # 'await' suspends this coroutine while the event loop runs other tasks.
+    # asyncio.sleep(delay) is non-blocking (similar to C# Task.Delay).
+    await asyncio.sleep(delay)
+    return f"request-{index}:ok"
+
+async def run_sequential(requests: int, delay: float) -> list[str]:
+    validate(requests, delay)
+    results: list[str] = []
+    for i in range(requests):
+        results.append(await simulated_io(i, delay))
+    return results
+
+
+async def run_gather(requests: int, delay: float) -> list[str]:
+    validate(requests, delay)
+    # simulated_io(i, delay) produces a coroutine object (its body hasn't run).
+    # create_task() wraps and schedules it on the current event loop, returning a Task.
+    # This schedules all requests before we await their results; no OS threads are created.
+    tasks = [asyncio.create_task(simulated_io(i, delay)) for i in range(requests)]
+    # '*' unpacks a list into positional arguments for asyncio.gather().
+    return list(await asyncio.gather(*tasks))
+
+
+async def run_taskgroup(requests: int, delay: float) -> list[str]:
+    validate(requests, delay)
+    # TaskGroup (3.11+) waits for children and manages failure/cancellation.
+    async with asyncio.TaskGroup() as group:
+        tasks = [group.create_task(simulated_io(i, delay)) for i in range(requests)]
+    # Once the 'async with' block exits successfully, every task has completed.
+    return [task.result() for task in tasks]
+
+async def main() -> None:
+    sequential = await run_sequential(3, 0)
+    gathered = await run_gather(3, 0)
+    grouped = await run_taskgroup(3, 0)
+    print("sequential:", sequential)
+    print("gather equals sequential:", gathered == sequential)
+    print("TaskGroup equals sequential:", grouped == sequential)
+
+asyncio.run(main())
+```
+
+**Expected output:**
+
+```text
+sequential: ['request-0:ok', 'request-1:ok', 'request-2:ok']
+gather equals sequential: True
+TaskGroup equals sequential: True
+```
+
+- `run_sequential()` **awaits each coroutine inside a `for` loop** before starting the next operation; each result is appended to a mutable list.
+- `run_gather()` uses a **list comprehension** to create all Tasks first. `*tasks` then **unpacks** the list as separate arguments into `asyncio.gather(...)`. Results are returned in argument order even when completion order differs.
+- `run_taskgroup()` uses `async with asyncio.TaskGroup() as group:`. The group creates child Tasks, waits for them on exit, and then `task.result()` retrieves completed values. On a child failure, it cancels remaining siblings and raises an `ExceptionGroup` for non-cancellation errors.
+- `await` is valid **only inside an `async def` function** (or supported interactive environments). The two short comparisons in this section now each include their own `async def` and `asyncio.run(...)` so they can be copied into saved `.py` files without `SyntaxError`.
+
 
 ## 7. The dangerous mistake: blocking the event loop
 
@@ -640,6 +860,61 @@ For blocking **I/O**, `asyncio.to_thread()` can be a useful bridge when no nativ
 Use true asynchronous APIs (`await`-enabled drivers) when available; use the bridge for unavoidable blocking calls.
 
 **Further reading:** [Python — Event Loop](https://docs.python.org/3/library/asyncio-eventloop.html), [Python — Coroutines and Tasks](https://docs.python.org/3/library/asyncio-task.html), [MDN — JavaScript execution model](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Execution_model), [MDN — JavaScript microtasks](https://developer.mozilla.org/en-US/docs/Web/API/HTML_DOM_API/Microtask_guide).
+
+### 7.1 The actual blocking-I/O demonstration
+
+The `wrong()` / `good_async()` / `bridge_blocking_library()` names above are **short teaching examples**, not the functions executed by `asyncio_blocking.py`. The demo uses these real implementations:
+
+```python
+import asyncio
+from time import sleep
+from examples.asyncio_blocking import validate
+
+async def bad_blocking(index: int, delay: float) -> str:
+    # A coroutine runs on the event-loop thread until it yields at an await.
+    # time.sleep() blocks THAT thread, even if CPython releases the GIL.
+    # Therefore other scheduled asyncio Tasks cannot progress during this wait.
+    sleep(delay)  # BAD: blocks the event-loop thread until sleep finishes.
+    return f"request-{index}:ok"
+
+
+async def bridge_blocking(index: int, delay: float) -> str:
+    # A worker thread is a separate OS thread from the asyncio event-loop thread.
+    # to_thread() uses the loop's thread pool to run blocking sleep(delay) there.
+    # 'sleep' is a function reference, not an immediate call; 'delay' is its argument.
+    # 'await' yields control to the event loop until the worker completes.
+    await asyncio.to_thread(sleep, delay)
+    return f"request-{index}:ok"
+
+async def run_bad(requests: int, delay: float) -> list[str]:
+    validate(requests, delay)
+    return list(await asyncio.gather(
+        *(bad_blocking(i, delay) for i in range(requests))
+    ))
+
+
+async def run_bridged(requests: int, delay: float) -> list[str]:
+    validate(requests, delay)
+    return list(await asyncio.gather(
+        *(bridge_blocking(i, delay) for i in range(requests))
+    ))
+
+async def main() -> None:
+    blocked = await run_bad(2, 0)
+    bridged = await run_bridged(2, 0)
+    print("Results match:", blocked == bridged)
+    print("Values:", blocked)
+
+asyncio.run(main())
+```
+
+```text
+Results match: True
+Values: ['request-0:ok', 'request-1:ok']
+```
+
+**Why this works:** `bad_blocking()` calls synchronous `sleep(delay)` **inside the event loop** without suspending, so other Tasks cannot run during that wait. `bridge_blocking()` instead awaits `asyncio.to_thread(sleep, delay)`, which runs the blocking function on a **worker thread**. `run_bad()` and `run_bridged()` use a generator expression `(bad_blocking(i, delay) for i in range(requests))` and `*...` argument unpacking to supply the coroutines to `asyncio.gather`. These operations return identical values, but their scheduling differs. The zero-delay test is deterministic; use the existing CLI command with `--delay 0.2` to **observe** the difference in measured time.
+
 
 ## 8. Production engineering considerations
 
