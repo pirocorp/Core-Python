@@ -664,66 +664,23 @@ flowchart LR
 
 Also note: `ExitStack.callback(callback)` registers a cleanup function that receives **no exception details** and cannot suppress an exception. `push()` and `enter_context()` register different kinds of exit behavior. For normal managers, use `enter_context()`.
 
-## 9. `async with`: asynchronous acquisition and cleanup
+## 9. `async with`: async setup, cleanup and cancellation
 
-A regular `with` uses synchronous `__enter__` and `__exit__` methods. When acquiring or releasing a resource itself involves `await` (for example, gracefully closing a network connection), implement the **asynchronous protocol** instead.
+A normal `with` calls synchronous `__enter__()` / `__exit__()`. When setup or cleanup itself needs to `await`, Python uses a **different protocol**: `__aenter__()` and `__aexit__()`. It is conceptually similar to C# `await using` and `IAsyncDisposable`.
 
-See [`examples/async_managers.py`](examples/async_managers.py):
+All examples below refer to the real [`examples/async_managers.py`](examples/async_managers.py) file.
 
-```python
-import asyncio
-from types import TracebackType
-
-class AsyncConnection:
-    async def __aenter__(self) -> str:
-        await asyncio.sleep(0)  # Stand-in for asynchronous connection setup.
-        return "db"
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        exc_traceback: TracebackType | None,
-    ) -> bool:
-        await asyncio.sleep(0)  # Stand-in for async connection teardown.
-        return False
-
-async def main() -> None:
-    async with AsyncConnection() as connection:
-        print("use:", connection)
-
-asyncio.run(main())
-```
-
-**Expected output:** `use: db`.
-
-- `async def` defines a coroutine function; calling it creates a coroutine object. It runs when awaited or scheduled.
-- `async with` awaits `__aenter__()` before the body and awaits `__aexit__()` as it leaves. It can appear only inside an asynchronous function.
-- `async with` is **not** interchangeable with `with`: a plain synchronous manager does not automatically implement the async protocol, and vice versa.
-- This is similar to C# `await using` and `IAsyncDisposable`, but Python's `__aexit__` also has the **exception-suppression return value**.
-
-### `@asynccontextmanager` and `AsyncExitStack`
-
-For a short async resource wrapper, use `@asynccontextmanager` and `async def` containing a single `yield`:
+### 9.1 `AsyncConnection`: the class-based async manager
 
 ```python
 import asyncio
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-
-@asynccontextmanager
-async def session() -> AsyncIterator[str]:
-    print("open")
-    try:
-        await asyncio.sleep(0)
-        yield "session-handle"
-    finally:
-        await asyncio.sleep(0)
-        print("close")
+from examples.async_managers import AsyncConnection
 
 async def main() -> None:
-    async with session() as resource:
-        print("use:", resource)
+    events: list[str] = []
+    async with AsyncConnection("db", events) as resource:
+        events.append(f"use:{resource}")
+    print(events)
 
 asyncio.run(main())
 ```
@@ -731,36 +688,108 @@ asyncio.run(main())
 **Expected output:**
 
 ```text
-open
-use: session-handle
-close
+['open:db', 'use:db', 'close:db']
 ```
 
-`AsyncExitStack` plays the same role as `ExitStack` for a dynamic collection of async resources. Use `await stack.enter_async_context(manager)` to register asynchronous cleanup:
+The original `AsyncConnection` class implements `async def __aenter__(self) -> str:` and `async def __aexit__(self, exc_type, exc_value, exc_traceback) -> bool:`. Each performs `await asyncio.sleep(0)` to **simulate a cooperative asynchronous operation**, not to contact a real database.
+
+| Python syntax | What happens | C# analogy |
+|---|---|---|
+| `async def main() -> None:` | Declares an **async coroutine function**; calling it creates a coroutine object | `async Task Main()` in intent |
+| `asyncio.run(main())` | Creates/runs the event loop for this standalone script, runs the coroutine and closes the loop | Application entry point that awaits a task |
+| `await asyncio.sleep(0)` | Suspends the coroutine and gives the event loop a chance to run other work | Cooperative yielding such as `await Task.Yield()` |
+| `async with AsyncConnection(...) as resource:` | Awaits `__aenter__()`, runs the body, then awaits `__aexit__()` | `await using` with `IAsyncDisposable` |
+| `async def __aexit__(...) -> bool` | Async cleanup that also decides exception suppression | Async disposal **plus** Python's exception-aware exit contract |
+
+A regular `with` cannot automatically use an async-only context manager; an `async with` requires the asynchronous protocol. As in Section 5, a falsy `__aexit__()` return lets a body exception propagate, while a truthy return suppresses it.
+
+### 9.2 `@asynccontextmanager`: the async generator version
+
+The same demo also defines a generator-based async manager. This is the **actual implementation** (with its imports and a call):
 
 ```python
 import asyncio
-from contextlib import AsyncExitStack
-from examples.async_managers import async_resource
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def async_resource(name: str, events: list[str]) -> AsyncIterator[str]:
+    """An async generator-based manager; yield exactly one value."""
+    events.append(f"open:{name}")
+    try:
+        await asyncio.sleep(0)
+        yield name
+    finally:
+        # The async finally is awaited even if the body is cancelled.
+        await asyncio.sleep(0)
+        events.append(f"close:{name}")
+
 
 async def main() -> None:
     events: list[str] = []
-    async with AsyncExitStack() as stack:
-        for name in ("db", "cache"):
-            await stack.enter_async_context(async_resource(name, events))
-        events.append("work")
+    async with async_resource("cache", events) as resource:
+        events.append(f"use:{resource}")
     print(events)
 
 asyncio.run(main())
 ```
 
-**Expected output:** `['open:db', 'open:cache', 'work', 'close:cache', 'close:db']`. The async resources are released in reverse order.
+**Expected output:**
 
-### Cancellation and failure paths
+```text
+['open:cache', 'use:cache', 'close:cache']
+```
 
-An `asyncio.Task` can be cancelled while holding a resource. Its exception unwinds the `async with` block, so Python attempts the awaited `__aexit__` cleanup. The runnable example tests this without timing assumptions. Its cancellation events are `open:stream → close:stream → caught:CancelledError`, showing that resource cleanup was awaited before the caller observed cancellation.
+This combines the concepts from `@contextmanager` (Section 7) with `async def` and `await`:
 
-**Nuance:** `asyncio.CancelledError` inherits from `BaseException`, so an ordinary `except Exception:` does not catch it. A `finally` block *does* run while unwinding, but asynchronous cleanup can itself be interrupted by additional cancellation, timeouts, or process termination. Do not interpret `async with` as an absolute guarantee against process crashes.
+- `@asynccontextmanager` turns an **async generator function** into an object usable by `async with`.
+- `AsyncIterator[str]` is the return **type hint** for the async generator's yielded values. `yield name` exposes the handle to the caller.
+- `await asyncio.sleep(0)` stands in for real asynchronous open/close operations; it is deliberately **not** a network call.
+- `try/finally` ensures that the `close:cache` event is recorded on normal exit and when the body throws. The `await` in cleanup is part of leaving the `async with` block.
+
+### 9.3 `AsyncExitStack`: dynamic async resources
+
+`AsyncExitStack` is the asynchronous counterpart of `ExitStack`. The original `run_async_stack()` function uses `await stack.enter_async_context(async_resource(name, events))` to enter and register each manager. Its exit order is still **LIFO**.
+
+```python
+import asyncio
+from examples.async_managers import run_async_stack
+
+print(asyncio.run(run_async_stack()))
+```
+
+**Expected output:**
+
+```text
+['open:db', 'registered:db', 'open:cache', 'registered:cache', 'work', 'close:cache', 'close:db']
+```
+
+The `registered:...` events confirm that each call to `enter_async_context` succeeded. Compare the order: enter `db`, enter `cache`, then close `cache`, then close `db`.
+
+### 9.4 `asyncio.Task` cancellation and resource safety
+
+In `run_cancellation()`, the demo creates a task that holds a `stream` resource and waits for an event that never becomes set. The caller then cancels the task after confirming entry. Run the example:
+
+```python
+import asyncio
+from examples.async_managers import run_cancellation
+
+print(asyncio.run(run_cancellation()))
+```
+
+```text
+['open:stream', 'close:stream', 'caught:CancelledError']
+```
+
+Follow the relevant Python syntax:
+
+1. `entered = asyncio.Event()` creates a coordination event (**similar in purpose** to a completion signal in .NET).
+2. `task = asyncio.create_task(operation())` schedules the coroutine to run as a Task, comparable to running asynchronous work in .NET, though the scheduling models differ.
+3. `await entered.wait()` ensures the resource has been **entered** before requesting cancellation. This avoids tests depending on arbitrary sleep durations.
+4. `task.cancel()` requests cancellation, which causes an `asyncio.CancelledError` to be raised at a suspension point inside the task.
+5. Python unwinds `async with` and **awaits cleanup**; only afterward does the waiting caller handle `except asyncio.CancelledError:`.
+
+**Important difference from ordinary exceptions:** `asyncio.CancelledError` inherits from `BaseException`, not `Exception`, so a generic `except Exception:` does **not** catch task cancellation. The async cleanup shown here is not an absolute guarantee against hard process termination, repeated cancellation, or cleanup failures.
 
 ## 10. C#/.NET comparison: capabilities and limits
 
