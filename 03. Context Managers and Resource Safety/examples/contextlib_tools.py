@@ -5,6 +5,8 @@ from contextlib import contextmanager, nullcontext, suppress
 from collections.abc import Iterator
 
 
+# @contextmanager is a decorator: it makes this yield-based function usable
+# with 'with'. Decorator syntax and internals are covered in Lesson 04.
 @contextmanager
 def traced_resource(name: str, events: list[str]) -> Iterator[str]:
     """A generator-based context manager must yield exactly one resource."""
