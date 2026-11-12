@@ -505,62 +505,90 @@ print(events)
 
 This is the same fundamental resource-unwinding principle you apply with nested C# `using` blocks or scoped disposables.
 
-## 7. `contextlib.contextmanager`: setup and cleanup without a class
+## 7. `@contextmanager`, generators and optional resources
 
-When a tiny resource scope is clearer as a function, `contextlib.contextmanager` converts a generator function into a context manager. See [`examples/contextlib_tools.py`](examples/contextlib_tools.py):
+The file [`examples/contextlib_tools.py`](examples/contextlib_tools.py) creates a context manager without defining `__enter__()` and `__exit__()` by hand. Instead, it uses the standard-library `contextlib.contextmanager` decorator.
+
+### 7.1 Read the generator-based manager
+
+This is the **actual `traced_resource()` implementation** from the demo:
 
 ```python
 from collections.abc import Iterator
 from contextlib import contextmanager
 
 @contextmanager
-def traced_resource(name: str) -> Iterator[str]:
-    print("acquire:", name)
+def traced_resource(name: str, events: list[str]) -> Iterator[str]:
+    """A generator-based context manager must yield exactly one resource."""
+    events.append(f"acquire:{name}")
     try:
-        yield name
+        yield f"resource:{name}"  # __enter__ returns the yielded value.
     finally:
-        print("release:", name)
+        # On exceptions, control resumes at 'yield' with the exception.
+        # This finally executes before the exception propagates.
+        events.append(f"release:{name}")
 
-with traced_resource("cache") as resource:
-    print("use:", resource)
+
+events: list[str] = []
+with traced_resource("cache", events) as resource:
+    events.append(f"use:{resource}")
+
+print(events)
 ```
 
 **Expected output:**
 
 ```text
-acquire: cache
-use: cache
-release: cache
+['acquire:cache', 'use:resource:cache', 'release:cache']
 ```
 
-### Python syntax notes
+Read the new syntax in the order Python executes it:
 
-- `@contextmanager` is a **decorator**, applied to the following function definition. It wraps the generator to provide `__enter__` / `__exit__` behavior. Lesson 04 studies decorators in depth.
-- `yield name` is not the same as `return name`. It **pauses the generator** and exposes that value as the target of `as resource`. After the block, the generator resumes and runs the cleanup.
-- `Iterator[str]` documents the type yielded by the generator. It is a type hint, not runtime enforcement.
-- The generator-based manager must **yield exactly once**. If it does not yield, or yields again during exit, `contextlib` raises a `RuntimeError`.
-- When the body raises, `contextlib` re-injects that exception at the suspended `yield`. A `try/finally` ensures release, then lets the exception continue.
-- **Do not accidentally swallow exceptions:** if you catch an exception inside the generator and simply finish without raising it again, the corresponding context manager can **suppress it**. Log and re-raise unless suppression is deliberate.
+1. `@contextmanager` is a **decorator** (the `@` syntax). It wraps the generator function so that it supports the same `with` protocol. You will implement decorators yourself in Lesson 04.
+2. `def traced_resource(name: str, events: list[str]) -> Iterator[str]:` declares the generator function. `Iterator[str]` is a **type hint** for the values it yields. As in the previous class, annotations are not automatically enforced at runtime.
+3. `events.append(f"acquire:{name}")` runs when entering the `with` block. The body before `yield` is **setup**.
+4. `yield f"resource:{name}"` is **not a normal `return`**. It pauses the generator and sends the string to the `as resource` variable in the outer `with` block. The caller now executes its body.
+5. On exit, the generator resumes at the suspended `yield`. The `finally:` block appends the release event, including when the caller's body raises.
 
-### `suppress` and `nullcontext`
+**C# comparison:** imagine a helper that performs setup, invokes the user action, and runs `Dispose()` in `finally`. The Python `yield` marks the handoff to the caller's `with` body. Unlike a normal `return`, the generator continues after the body completes.
 
-`contextlib` also includes narrowly scoped tools:
+A generator-based manager must **yield exactly once** per entry. Missing `yield` raises `RuntimeError: generator didn't yield`, and a second yield while exiting raises `RuntimeError: generator didn't stop`.
+
+**Exception detail:** when the body throws, `contextlib` re-injects the exception at the suspended `yield`. `finally` still executes. If you catch the exception *inside* the generator and finish without re-raising, you can unintentionally suppress it. Ordinary cleanup should re-raise or simply use `try/finally` as the example does.
+
+### 7.2 `suppress`, `nullcontext` and another conditional expression
+
+The same file demonstrates two built-in managers:
 
 ```python
-from contextlib import nullcontext, suppress
+from contextlib import suppress, nullcontext
 
-# A targeted exception is considered an acceptable missing optional resource.
 with suppress(FileNotFoundError):
     raise FileNotFoundError("optional cache missing")
 
-# No-op context manager: supports a uniform 'with' path.
 with nullcontext("already available") as resource:
     print(resource)
 ```
 
-**Expected output:** `already available`. The missing-file exception is suppressed.
+**Output:** `already available`. The first exception is intentionally suppressed and execution reaches the second block.
 
-**Do not** use `suppress(Exception)` as a blanket replacement for proper error handling. For optional resources, `nullcontext` is also useful when a caller **already owns** a handle you must not close.
+- `suppress(FileNotFoundError)` is similar to a targeted C# `try/catch (FileNotFoundException)` whose handler intentionally does nothing. Suppress only **expected** errors, never every `Exception` indiscriminately.
+- `nullcontext(value)` performs no acquisition or cleanup but returns `value` from its enter method. It is useful when the caller already owns the resource or when management is optional.
+- In `run_optional(enabled)`, the demo uses `manager = traced_resource("optional", events) if enabled else nullcontext("direct")`. This is the **same conditional expression** introduced in Section 5: choose the manager depending on the Boolean, then use a **single shared `with` body**.
+
+Run both optional-resource paths from the original demo:
+
+```python
+from examples.contextlib_tools import run_optional
+
+print("enabled:", run_optional(True))
+print("disabled:", run_optional(False))
+```
+
+```text
+enabled: ['acquire:optional', 'use:resource:optional', 'release:optional']
+disabled: ['use:direct']
+```
 
 ## 8. `ExitStack`: acquire resources dynamically and safely
 
