@@ -143,7 +143,7 @@ class FunctionDecoratorTests(unittest.TestCase):
                 output = StringIO()
                 with redirect_stdout(output):
                     exec(
-                        compile(snippet, f"README.md snippet {i}", "exec"),
+                        compile(snippet, f"README.md snippet {i}", "exec", dont_inherit=True),
                         {"__name__": "__main__"},
                     )
                 self.assertEqual(output.getvalue().splitlines(), expected_cases[key])
