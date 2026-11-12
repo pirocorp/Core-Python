@@ -84,7 +84,7 @@ class FunctionDecoratorTests(unittest.TestCase):
             markdown,
             flags=re.MULTILINE,
         )
-        self.assertEqual(len(blocks), 3)
+        self.assertEqual(len(blocks), 4)
         for i, snippet in enumerate(blocks, start=1):
             with self.subTest(snippet=i):
                 output = StringIO()
@@ -115,6 +115,11 @@ class FunctionDecoratorTests(unittest.TestCase):
                     self.assertEqual(
                         output.getvalue().splitlines(),
                         ["Acquire", "Use: connection", "Release"],
+                    )
+                elif i == 4:
+                    self.assertEqual(
+                        output.getvalue().splitlines(),
+                        ["Manager created", "Open", "Use: session", "Close"],
                     )
 
     def test_readme_contains_exact_runnable_python_demo(self) -> None:
