@@ -10,7 +10,25 @@ Applications acquire files, locks, database connections, temporary directories, 
 
 A **context manager** defines what happens when a block begins and ends. Python's `with` statement calls the context manager's `__enter__()` method before running the block and its `__exit__()` method when leaving it, including on exceptions and early `return` or `break` — **provided `__enter__()` completed successfully**.
 
-The closest C# analogy is `using` with `IDisposable`. Both help with deterministic cleanup, but Python's `__exit__()` also receives exception information and can **suppress** a pending exception by returning a truthy value. C# `Dispose()` has no equivalent return-value mechanism.
+### First mental model for C# developers: `with` is `using`
+
+**Think of Python `with` as C# `using`, and Python `async with` as C# `await using`.** Both express *resource lifetime*, not the type of function you are writing. By contrast, `async def` is Python's way to declare an asynchronous function (roughly C# `async Task` or `async Task<T>`); it does **not** mean you must use `async with`.
+
+| C# | Python | What determines the choice? |
+|---|---|---|
+| `using` with `IDisposable` | `with` with `__enter__()` / `__exit__()` | The object supports **synchronous** context management |
+| `await using` with `IAsyncDisposable` | `async with` with `__aenter__()` / `__aexit__()` | The object supports **asynchronous** context management; use it inside `async def` |
+| `async Task<T>` | `async def` | The **function** needs to await asynchronous work, whether or not it manages a resource |
+| `await operation` | `await operation` | Await a coroutine/awaitable; **no context manager** is needed unless a resource has a managed lifetime |
+
+For example, `with open("example.txt") as file:` resembles `using var file = ...` for a synchronous file resource. `async with AsyncConnection("db", events) as name:` resembles `await using` for an asynchronously managed connection. And `async def fetch_data(): ...` can use `await` **without either kind of `with`**. A single `async def` can also contain a regular `with` when the resource's context-manager protocol is synchronous.
+
+**Two important protocol differences from C#:**
+
+1. Python calls `__enter__()` **at entry** and `__exit__()` **at exit** (or `__aenter__()` / `__aexit__()` asynchronously). The value after `as` is **whatever the enter method returns**, not necessarily the manager instance, unlike the normal C# `using` variable.
+2. Python's exit method receives any pending body exception and may **suppress it by returning `True`**. C# `Dispose()` / `DisposeAsync()` has no equivalent suppression return value. Cleanup still runs after a **successful enter**, including when the body raises or returns early.
+
+**Decision rule:** Choose `with` versus `async with` based on the **resource's supported protocol**, not on whether the surrounding function is `async def`. Use `async def` and `await` when the **operation itself is asynchronous**. Sections 3–9 build from this C# mental model to the exact Python semantics.
 
 We start with the built-in file manager, then implement the protocol ourselves, and finally handle nested, dynamic, and asynchronous resources.
 
@@ -302,6 +320,10 @@ The diagram describes the general protocol, including real resource managers. Th
 The minimal manager above explains the protocol. Now examine the **actual class** from [`examples/custom_manager.py`](examples/custom_manager.py), which also records events and can suppress one configured exception type. The file remains the executable reference; the same class is included here so you can understand it **before** running the demo.
 
 ### 5.1 The complete class from the demo
+
+**New import — `TracebackType`:** `from types import TracebackType` brings in the Python type for an exception **traceback object** (the structured execution path leading to the exception). The closest C# concept is `Exception.StackTrace`, although the Python value is an object, not a formatted stack-trace string. We use `TracebackType | None` **only as a type hint** for the third argument of `__exit__()`; it does not create a traceback or change exception handling. Normal exit passes `None` for all three exception arguments.
+
+**Also imported:** `from __future__ import annotations` postpones the evaluation of annotations in this module; it is a Python language directive, not a resource-management API.
 
 ```python
 from __future__ import annotations
@@ -1220,6 +1242,12 @@ All examples below refer to the real [`examples/async_managers.py`](examples/asy
 ### 9.1 `AsyncConnection`: the class-based async manager
 
 **This is the complete `AsyncConnection` class from `examples/async_managers.py`**, followed by the real `run_connection()` function. Nothing essential is hidden in the imported demo:
+
+**Imports used here:**
+
+- **`asyncio`** is Python's standard-library module for coroutine-based asynchronous programming using an **event loop** (introduced in Lesson 02). Here `asyncio.sleep(0)` deliberately **yields control to other ready tasks**; it does not block the event-loop thread, create a new thread, or simulate a real database connection. Its purpose is similar to C# `await Task.Yield()`, though the runtimes schedule tasks differently.
+- **`TracebackType`** comes from the standard-library `types` module. It identifies a **structured exception traceback** (conceptually related to C# `Exception.StackTrace`) and appears only as the `exc_traceback: TracebackType | None` type annotation for `__aexit__()`. Python provides the traceback automatically if the managed body raises; we do not create one. On normal exit, `exc_type`, `exc_value` and `exc_traceback` are all `None`.
+
 
 ```python
 import asyncio
