@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import sys
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 import unittest
 
@@ -13,6 +15,35 @@ import contextlib_tools
 import custom_manager
 import exit_stack
 import file_resources
+import simple_context_manager
+
+
+class SimpleContextManagerTests(unittest.TestCase):
+    def test_enter_body_exit_order(self) -> None:
+        output = StringIO()
+        with redirect_stdout(output):
+            simple_context_manager.main()
+        self.assertEqual(
+            output.getvalue().splitlines(),
+            [
+                "Entering the context",
+                "Inside the context",
+                "Exiting the context",
+            ],
+        )
+
+    def test_enter_returns_same_instance_and_exit_does_not_suppress(self) -> None:
+        output = StringIO()
+        manager = simple_context_manager.MyContextManager()
+        with self.assertRaisesRegex(ValueError, "body failure"):
+            with redirect_stdout(output):
+                with manager as cm:
+                    self.assertIs(cm, manager)
+                    raise ValueError("body failure")
+        self.assertEqual(
+            output.getvalue().splitlines(),
+            ["Entering the context", "Exiting the context"],
+        )
 
 
 class FileResourceTests(unittest.TestCase):
