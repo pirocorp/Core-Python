@@ -273,6 +273,10 @@ except ValueError:
 print(events)
 ```
 
+**Python syntax note — `try/except` is the C# `try/catch` equivalent.** Python's `try:` starts a protected block, `raise ValueError("recoverable")` throws an exception (like C# `throw new ArgumentException("recoverable")`), and `except ValueError:` catches that exception type (like C# `catch (ArgumentException)`). Python uses **`except`**, not `catch`; `finally:` exists in both languages for cleanup.
+
+The unusual part of this example is **not `try/except`**: the `with` block wraps the `raise`, and `MyContextManager.__exit__()` returns `True` for `ValueError`. That **suppresses the exception before it reaches `except ValueError:`**. If you use `suppress_type=None`, the manager instead lets the exception propagate and the `except` block appends `"caught"`.
+
 **Expected output:** the `except` branch is **not** executed:
 
 ```text
