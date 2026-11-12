@@ -5,6 +5,8 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 import re
+import shutil
+import subprocess
 import sys
 import unittest
 from urllib.parse import unquote
@@ -13,7 +15,7 @@ from urllib.parse import unquote
 LESSON = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(LESSON))
 
-from examples import function_decorators
+from examples import closures, function_decorators
 
 
 class FunctionDecoratorTests(unittest.TestCase):
@@ -42,6 +44,39 @@ class FunctionDecoratorTests(unittest.TestCase):
         # This is a documented limitation of the simple teaching example.
         self.assertEqual(function_decorators.hello.__name__, "wrapper")
 
+    def test_closure_counters_have_independent_mutable_state(self) -> None:
+        first = closures.make_counter(10)
+        second = closures.make_counter(0)
+        self.assertEqual([first(), first(), second(), first()], [11, 12, 1, 13])
+
+    def test_python_late_binding_and_explicit_snapshot(self) -> None:
+        self.assertEqual(
+            closures.demonstrate_late_binding(),
+            ([6, 6, 6], [0, 3, 6]),
+        )
+
+    def test_javascript_closure_example_when_node_is_available(self) -> None:
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("Node.js is optional; JavaScript demo not executable here")
+        result = subprocess.run(
+            [node, str(LESSON / "examples" / "closures.js")],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        self.assertEqual(
+            result.stdout.splitlines(),
+            [
+                "first: 11 12",
+                "second: 1",
+                "first again: 13",
+                "var loop: [ 9, 9, 9 ]",
+                "let loop: [ 0, 3, 6 ]",
+            ],
+        )
+        self.assertEqual(result.stderr, "")
+
     def test_python_code_in_readme_stays_runnable(self) -> None:
         markdown = (LESSON / "README.md").read_text(encoding="utf-8")
         blocks = re.findall(
@@ -49,7 +84,7 @@ class FunctionDecoratorTests(unittest.TestCase):
             markdown,
             flags=re.MULTILINE,
         )
-        self.assertEqual(len(blocks), 2)
+        self.assertEqual(len(blocks), 3)
         for i, snippet in enumerate(blocks, start=1):
             with self.subTest(snippet=i):
                 output = StringIO()
@@ -68,6 +103,17 @@ class FunctionDecoratorTests(unittest.TestCase):
                 elif i == 2:
                     self.assertEqual(
                         output.getvalue().splitlines(),
+                        [
+                            "first: 11 12",
+                            "second: 1",
+                            "first again: 13",
+                            "late: [6, 6, 6]",
+                            "snapshots: [0, 3, 6]",
+                        ],
+                    )
+                elif i == 3:
+                    self.assertEqual(
+                        output.getvalue().splitlines(),
                         ["Acquire", "Use: connection", "Release"],
                     )
 
@@ -77,6 +123,11 @@ class FunctionDecoratorTests(unittest.TestCase):
             encoding="utf-8"
         ).strip()
         self.assertIn(demo, markdown)
+        for filename in ("closures.py", "closures.js"):
+            example = (LESSON / "examples" / filename).read_text(
+                encoding="utf-8"
+            ).strip()
+            self.assertIn(example, markdown, f"README drifted from {filename}")
 
     def test_local_markdown_links_are_valid(self) -> None:
         markdown = (LESSON / "README.md").read_text(encoding="utf-8")
