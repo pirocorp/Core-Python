@@ -73,6 +73,8 @@ with open("example.txt", "r", encoding="utf-8") as file:
 **C# equivalent for the file lifetime:**
 
 ```csharp
+using System.IO;
+
 using (var reader = new StreamReader("example.txt"))
 {
     string data = reader.ReadToEnd();
