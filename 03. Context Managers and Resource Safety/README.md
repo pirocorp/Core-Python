@@ -123,7 +123,7 @@ Closed after with: True
 Hello from Python
 ```
 
-Here `"w"` means **write mode** (overwriting existing content), `Path(directory) / "example.txt"` joins path components using the `Path` `/` operator (not division), and `TemporaryDirectory.__enter__()` returns a **directory path string**, not the manager object. When its outer `with` exits, that directory is removed.
+Here `"w"` means **write mode** (overwriting existing content), `Path(directory) / "example.txt"` joins path components using the `Path` `/` operator (not division), and `TemporaryDirectory.__enter__()` returns a **directory path string**, not the manager object. Unlike a custom manager that allocates inside `__enter__()`, the built-in `open()` function opens the file **before** the file object's `__enter__()` is invoked. When its outer `with` exits, that directory is removed.
 
 ### How `with` relates to `try/finally`
 
@@ -534,11 +534,11 @@ Extend `exit_stack.run_batch` so it can process a user-supplied list of resource
 
 ### Exercise C — Async session with cancellation
 
-Add an async resource to `async_managers.py` with two observable events: `open` and `close`. Start an operation that waits indefinitely on `asyncio.Event()`, then cancel the owning Task.
+Extend `async_managers.py` with an operation that enters **two** async resources through `AsyncExitStack`, then waits on `asyncio.Event()`. Cancel its owning Task after both resources have entered.
 
-**Validation:** `close` is observed before the waiting caller handles the cancellation. Use `unittest.IsolatedAsyncioTestCase`, without sleeps or timing-sensitive assertions.
+**Validation:** both resources close in **reverse acquisition order** before the caller handles `asyncio.CancelledError`. Use `unittest.IsolatedAsyncioTestCase` and an `Event` to synchronize the cancellation, not sleeps or timing assertions.
 
-**Common failure:** starting cleanup in an unawaited coroutine, which does not guarantee resource release before control returns.
+**Common failure:** forgetting to await asynchronous cleanup, or cancelling before the resources have actually entered.
 
 ## 12. Troubleshooting and production pitfalls
 
