@@ -49,7 +49,7 @@ python -m compileall -q examples tests
 python -m unittest discover -s tests -v
 ```
 
-**Expected validation:** all **26 deterministic unit tests** pass. The samples need no network access or external packages. The tests **validate internal Markdown links, run every Python code block in this README independently, and verify that full demo implementations embedded here match their source files**, using temporary input data when a snippet assumes `example.txt` exists. Sample data is written to temporary directories and removed at exit. Python may create local `__pycache__` files when compiling or running the examples.
+**Expected validation:** all **27 deterministic tests** pass, including the new check that the introductory `ExitStack` trace matches its documented output. The samples need no network access or external packages. The tests **validate internal Markdown links, run every Python code block in this README independently, and verify that full demo implementations embedded here match their source files**, using temporary input data when a snippet assumes `example.txt` exists. Sample data is written to temporary directories and removed at exit. Python may create local `__pycache__` files when compiling or running the examples.
 
 On systems where the Python executable is called `python3` or `py -3`, substitute that launcher consistently. Snippets importing `examples.*` should be run **from this lesson directory**; Python 3 supports importing these modules through an implicit namespace package.
 
