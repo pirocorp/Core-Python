@@ -43,6 +43,8 @@ When someone says **“Python 3”**, they mean **version 3 of the Python langua
 
 CPython normally compiles `.py` source into an internal bytecode representation before executing it. Bytecode format, reference counts and the GIL are **implementation details**, not part of the Python language syntax. The code below checks your installation:
 
+**Imports in this example:** `platform` is a Python standard-library module for identifying the operating system and interpreter. Its `python_implementation()` and `python_version()` functions tell us which Python runtime is actually running; no external package is needed.
+
 ```python
 import platform
 
@@ -85,6 +87,8 @@ To observe overlapping waits in practice, run [the I/O-wait example](examples/io
 ### 3.1 The complete I/O-wait experiment from the demo
 
 The command above runs **two different implementations** from [`io_wait_threads.py`](examples/io_wait_threads.py): `sequential_waits()` waits twice on the calling thread; `threaded_waits()` starts two real OS threads and joins them. Here is their **actual source**, with the required imports and a compact runnable call:
+
+**Imports:** `threading.Thread` (imported as `Thread`) represents an OS thread; `time.sleep` (imported as `sleep`) pauses the **calling thread** to simulate blocking I/O; `time.perf_counter` is a high-resolution clock for measuring elapsed time. These are all standard-library APIs. Importing the names directly allows calls such as `Thread(...)` rather than `threading.Thread(...)`.
 
 ```python
 from threading import Thread
@@ -176,6 +180,8 @@ In .NET, two CPU-heavy tasks dispatched to separate thread-pool threads may run 
 
 Try this **copyable Python example**:
 
+**Import:** `sys` is the standard-library module exposing Python interpreter and runtime information. Here we use its CPython-specific `getrefcount()` function to inspect references; it is a diagnostic tool, not an application-level memory-management API.
+
 ```python
 import sys
 
@@ -249,6 +255,8 @@ A basic explanation of reference counting says the object can be reclaimed when 
 ### The complete unreachable-cycle example
 
 To understand *why reference counting is insufficient*, the actual [`reference_cycles.py`](examples/reference_cycles.py) is reproduced below rather than hidden in a separate script:
+
+**Imports:** `gc` provides Python's garbage-collection controls; `gc.collect()` explicitly runs a collection. `weakref` provides non-owning references: `weakref.ref(obj)` lets us observe whether an object still exists without preventing its collection. Both are standard-library modules. `from __future__ import annotations` is a **special Python directive**, not a regular library helper: it postpones evaluation of type annotations, which is useful when annotations refer to types defined later. It does **not** change how objects are collected.
 
 ```python
 from __future__ import annotations
@@ -368,6 +376,8 @@ Wall-clock timings vary: do not assert a fixed ratio or infer thread safety.
 ### How the real benchmark creates and compares its threads
 
 The `factorial()` definition above is only the CPU workload. The important **GIL experiment** lives in these actual functions from [`factorial_threads.py`](examples/factorial_threads.py):
+
+**Imports:** `threading` provides OS-thread primitives (`threading.Thread` here), while `perf_counter` from `time` measures elapsed seconds. `from examples.factorial_threads import factorial` imports **our own** function, implemented in the previous subsection; it is not a standard-library function.
 
 ```python
 import threading
