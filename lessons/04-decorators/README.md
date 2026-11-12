@@ -423,9 +423,13 @@ Unlike the Python function decorator, the **class** `TimestampLoggerDecorator` i
 
 Both approaches allow behavior to be added without modifying the wrapped implementation, but they are not interchangeable or identical mechanisms.
 
-## 6. How does `@contextmanager` from Lesson 03 fit in?
+## 6. `@contextmanager` and `@asynccontextmanager` — decorators that create resource scopes
 
-The previously introduced `@contextmanager` is another **Python decorator**, but it is **special-purpose**: it accepts a generator function with `yield` and returns a callable that creates context managers usable with `with`.
+[Lesson 03 — Context Managers and Resource Safety](../../03.%20Context%20Managers%20and%20Resource%20Safety/README.md) uses `@contextmanager` and `@asynccontextmanager` to teach resource lifetime. Their behavior inside `with` belongs to that lesson; **this section explains the decorators themselves**: why `@` changes a function, when its code runs, and how the synchronous and asynchronous variants differ.
+
+### 6.1 A decorator transforms the function definition
+
+A normal generator function (one containing `yield`) does **not** automatically implement the context-manager protocol. The standard-library `contextlib.contextmanager` is a **higher-order function**: it accepts a generator function and returns a function that produces context-manager objects.
 
 ```python
 from contextlib import contextmanager
@@ -450,21 +454,78 @@ Use: connection
 Release
 ```
 
-The decoration syntax:
+Here `@contextmanager` is a **Python function decorator**, not a GoF object decorator and not a C# attribute.
+
+These two forms are equivalent:
 
 ```text
+# Form A — decorator applied during function definition:
 @contextmanager
 def my_resource():
     ...
+
+# Form B — same transformation written explicitly:
+def my_resource():
+    ...
+
+my_resource = contextmanager(my_resource)
 ```
 
-is equivalent to **defining the generator function** first, then assigning `my_resource = contextmanager(my_resource)`.
+**Trace the evaluation stages:**
 
-But the runtime behavior is *not* the same as the logging wrapper above:
+1. **Definition time:** Python creates the original generator function `my_resource` and passes that function object into `contextmanager(...)`. The returned wrapper/factory is rebound to the name `my_resource`. **No resource is acquired yet.**
+2. **Call time:** `my_resource()` invokes the *decorated* function and returns a **context manager object**, not the string `"connection"`. Its generator's body still has **not** executed.
+3. **Enter time:** `with ...` invokes the manager's `__enter__()`, which advances the generator. Code before `yield` runs (`Acquire`); `yield "connection"` supplies the `as resource` value and suspends the generator.
+4. **Exit time:** `__exit__()` resumes the generator so the `finally` block executes (`Release`). The `with` body may finish normally or raise an exception.
 
-- `@log_calls` returns a normal callable wrapper that calls `func()` every time the decorated function is invoked.
-- `@contextmanager` returns a factory for context manager objects. The generator's setup code **starts when the returned manager is entered by `with`**, suspends at `yield` to give a resource to the caller, then resumes for cleanup on exit.
-- It **does not automatically wrap a class** or act like the GoF Decorator Pattern merely because it uses the word “decorator”.
+The returned context manager supplies `__enter__()` / `__exit__()` behavior through `contextlib`. We **do not** define those methods in the generator function. By contrast, if you remove `@contextmanager` and call `with my_resource():`, Python receives a **generator object** without the required context-manager protocol and raises `TypeError`.
+
+**Relationship to closures and HOFs:** `contextmanager` is a reusable higher-order transformation. Its implementation arranges for the original generator function to remain available to the returned factory — conceptually related to the function wrapping and captured references in Sections 2 and 3. You do not need a new class or GoF Decorator Pattern to apply it.
+
+**Resource correctness:** `yield` marks the suspension and handoff; the `try/finally` block provides predictable cleanup. If the `with` body throws, the context manager injects the exception at the suspended `yield`. The `finally` block runs and the exception normally propagates. If the generator catches and intentionally suppresses it, the result may differ. These resource-management semantics are covered in depth in Lesson 03.
+
+### 6.2 Async counterpart: `@asynccontextmanager`
+
+`contextlib.asynccontextmanager` is the **same type of decorating mechanism**, adapted to an **async generator function** (one containing both `async def` and `yield`). It produces objects usable with `async with` and implementing the `__aenter__()` / `__aexit__()` async protocol.
+
+```python
+import asyncio
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def async_resource():
+    print("Open")
+    try:
+        await asyncio.sleep(0)  # Stand-in for asynchronous acquisition.
+        yield "session"
+    finally:
+        await asyncio.sleep(0)  # Stand-in for asynchronous release.
+        print("Close")
+
+async def main():
+    manager = async_resource()
+    print("Manager created")
+    async with manager as resource:
+        print(f"Use: {resource}")
+
+asyncio.run(main())
+```
+
+**Expected output:**
+
+```text
+Manager created
+Open
+Use: session
+Close
+```
+
+- The `@asynccontextmanager` transformation happens **when `async_resource` is defined**, not during a later event-loop iteration. It can be spelled `async_resource = asynccontextmanager(async_resource)` instead.
+- The expression `manager = async_resource()` returns an **async context manager object**, without performing the `Open` operation. This is why `Manager created` appears first.
+- `async with manager as resource:` **awaits** its enter method, starts the async generator, suspends at `yield` and hands `"session"` to `resource`. On exit, the generator resumes and **awaits cleanup** in `finally`.
+- A plain `with` expects the *synchronous* protocol; an `async with` expects the *asynchronous* one. The `@` syntax itself does not supply a synchronous-to-asynchronous conversion.
+
+This section demonstrates **why the decorator syntax works**; Lesson 03 provides the detailed exception-handling, `ExitStack` / `AsyncExitStack` and cancellation behavior needed for production resource safety.
 
 ### Python decorators are not C# attributes
 

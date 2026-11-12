@@ -5,6 +5,8 @@ from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 
 
+# Decorator: turns this generator into a context manager for 'with'.
+# The @ syntax is explained in Lesson 04; here we focus on ExitStack.
 @contextmanager
 def acquire(name: str, events: list[str], fail: bool = False) -> Iterator[str]:
     # This records the *attempt*; a later failure may prevent acquisition.

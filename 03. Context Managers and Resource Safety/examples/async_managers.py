@@ -30,6 +30,8 @@ class AsyncConnection:
         return False  # Propagate any body exception.
 
 
+# @asynccontextmanager is a decorator for async generator-based managers.
+# Its @ syntax and transformation mechanics are explained in Lesson 04.
 @asynccontextmanager
 async def async_resource(name: str, events: list[str]) -> AsyncIterator[str]:
     """An async generator-based manager; yield exactly one value."""
