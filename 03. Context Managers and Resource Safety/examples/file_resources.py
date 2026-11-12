@@ -12,12 +12,13 @@ def write_and_read(text: str) -> tuple[str, bool]:
     with TemporaryDirectory(prefix="context-lesson-") as directory:
         path = Path(directory) / "example.txt"
 
+        # This matches the first 'with open(...) as file' teaching example.
         # __enter__ opens the file. The 'as writer' target is the value
         # returned by __enter__, not a new variable scope.
-        with path.open("w", encoding="utf-8") as writer:
+        with open(path, "w", encoding="utf-8") as writer:
             writer.write(text)
 
-        with path.open("r", encoding="utf-8") as reader:
+        with open(path, "r", encoding="utf-8") as reader:
             result = reader.read()
             assert not reader.closed  # The resource is still open in the body.
 
@@ -32,7 +33,7 @@ def close_after_exception() -> tuple[bool, str]:
         path.write_text("contents", encoding="utf-8")
 
         try:
-            with path.open("r", encoding="utf-8") as reader:
+            with open(path, "r", encoding="utf-8") as reader:
                 raise RuntimeError("simulated processing failure")
         except RuntimeError as exc:
             # Unlike C# using declarations, Python's 'with' variable is still
