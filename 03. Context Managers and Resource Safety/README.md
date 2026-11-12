@@ -141,9 +141,15 @@ finally:
 
 This is an accurate illustration of the **file cleanup behavior**, not a full implementation of Python's `with` protocol. A general context manager calls `__exit__(exc_type, exc_value, traceback)` with real exception information and can choose whether to suppress the exception. We explore that protocol next.
 
-## 4. Implement `__enter__` and `__exit__`
+## 4. The context-manager protocol: `__enter__()` and `__exit__()`
 
-The file object above follows the same enter/exit protocol. [`examples/simple_context_manager.py`](examples/simple_context_manager.py) makes the call order visible using a small custom class:
+`__enter__()` and `__exit__()` are **special Python methods** that let an object define what happens when execution **enters and leaves a `with` block**. Together they form the **context-manager protocol**.
+
+This is similar to C# `using` and `IDisposable`: both can provide predictable resource cleanup. The important Python difference is that `__exit__()` also receives information about any exception raised inside the block, and can choose to **suppress** it.
+
+### A minimal example
+
+The file object in Section 3 already implements this protocol. To see the methods directly, run [`examples/simple_context_manager.py`](examples/simple_context_manager.py):
 
 ```python
 class MyContextManager:
@@ -166,54 +172,88 @@ Inside the context
 Exiting the context
 ```
 
-### The context-manager protocol
+### How Python executes this example
 
-- `class MyContextManager:` creates a class. Python recognizes it as a context manager because it defines the required protocol methods; it does **not** have to inherit from an interface.
-- `def __enter__(self):` defines the method called when entering `with`. `self` means the current instance, broadly like C# `this`. The two leading and trailing underscores mark a **special method**.
-- `return self` sends the same instance back to the caller. Therefore, in `with MyContextManager() as cm:`, the variable `cm` references the object returned by `__enter__()`. **The `as` target receives the value returned by `__enter__()`, not necessarily the manager itself.**
-- `def __exit__(self, exc_type, exc_value, traceback):` defines the method Python invokes when leaving the block. On normal exit, the three exception arguments are `None`. If the body raises, Python passes the exception class, exception instance, and traceback.
-- The `__exit__` method has **no explicit `return`**, so it implicitly returns `None`. That means **it does not suppress exceptions**; the original exception still propagates after cleanup.
-- `with MyContextManager() as cm:` constructs a manager and calls `__enter__`. The indented `print` is the managed body; after that body completes, Python calls `__exit__`.
+1. **Create the object:** `MyContextManager()` constructs an instance.
+2. **Enter:** before running the body, Python calls its `__enter__()` method. `return self` returns the same instance, which `as cm` assigns to `cm`.
+3. **Run the body:** Python executes the indented `print("Inside the context")` statement.
+4. **Exit:** on leaving the block, Python calls `__exit__()` — on normal completion, an early `return`, or an exception in the body (provided `__enter__()` succeeded).
 
-This class demonstrates the call order; printing messages does **not** acquire or release a resource. A real manager must implement the appropriate acquisition and cleanup.
+| Method | Purpose | C# analogy |
+|---|---|---|
+| `__enter__()` | Prepare or acquire a resource; return the value bound by `as` | Resource acquisition before a `using` scope |
+| `__exit__()` | Perform cleanup and receive information about a pending exception | `Dispose()` plus exception-aware behavior |
 
-**C# analogy:** the lifecycle resembles entering a C# `using` scope, executing the body, and running `Dispose()` when leaving it. Unlike `using`, Python passes exception information to `__exit__`, and a *truthy* return value could suppress an exception.
+**Note:** these methods do not automatically acquire or release resources. In this first example they **only print messages**; a real file or connection manager implements meaningful setup and cleanup. Also, the value assigned by `as` is **whatever `__enter__()` returns**, not necessarily `self`.
 
-### Exception arguments and type hints
+### Why the double underscores?
 
-The more complete [`examples/custom_manager.py`](examples/custom_manager.py) adds an event log, typed method signatures, nested managers, and exception-handling behavior. This file defines its **own** `MyContextManager` class with an extended constructor; it is **not** the minimal class shown above.
+`__enter__` and `__exit__` are known as **dunder methods** (*double underscore methods*). Their names are predefined by Python's data model, not arbitrary naming conventions. The `with` statement invokes these special methods through the context-manager protocol.
 
-Its `__exit__()` signature uses `exc_type: type[BaseException] | None`, `exc_value: BaseException | None`, `exc_traceback: TracebackType | None`, and `-> bool`:
+You have already encountered another dunder method: `__init__()`, which Python invokes to initialize a newly created instance. Here, `__enter__()` and `__exit__()` are the hooks for a managed `with` block.
 
-- `type[BaseException] | None` means **an exception class or `None`**; `TracebackType | None` means traceback data or `None`.
-- `| None` is a **union type hint**, not a bitwise operation here. Return annotations such as `-> str` or `-> bool` are **not enforced automatically at runtime**.
-- Normal exit provides three `None` values; exceptional exit provides information about the active exception. A falsy return allows an exception to propagate, while a truthy return suppresses it (Section 5).
+Python does **not** require inheritance from a special interface or base class to implement this protocol: an appropriate object with these methods can be used in `with`.
 
-### The exact lifecycle
+### What do the `__exit__()` parameters mean?
+
+```python
+def __exit__(self, exc_type, exc_value, traceback):
+    print("Exiting the context")
+```
+
+- `self` — the current instance, broadly equivalent to `this` in C#.
+- `exc_type` — the exception **class**, such as `ValueError`, if the body raised.
+- `exc_value` — the actual **exception instance**, such as `ValueError("invalid input")`.
+- `traceback` — the traceback object describing the exception's execution path.
+
+On **normal exit**, `exc_type`, `exc_value`, and `traceback` are **all `None`**. The same is true for an early `return` or `break` that is not caused by an exception.
+
+In the minimal example, `__exit__()` has no explicit `return` statement, so Python implicitly returns `None`. This means a pending exception is **not suppressed**; it propagates after the exit method completes. A **truthy** return value would suppress an exception from the body — an advanced behavior demonstrated in Section 5. A falsy return (such as `None` or `False`) lets it propagate.
+
+**Important boundary:** if `__enter__()` itself raises, that manager's `__exit__()` is **not called**. An implementation that partially acquires resources during entry must account for that possibility.
+
+### Type hints in the extended example
+
+[`examples/custom_manager.py`](examples/custom_manager.py) defines a **separate, more capable** `MyContextManager` for nested contexts, event logs, and selective exception suppression. Its methods use type hints, such as:
+
+```python
+# Example of a typed signature; the executable implementation is in custom_manager.py.
+from types import TracebackType
+
+def __exit__(
+    self,
+    exc_type: type[BaseException] | None,
+    exc_value: BaseException | None,
+    traceback: TracebackType | None,
+) -> bool:
+    ...
+```
+
+Here `| None` expresses a union type, and `-> bool` describes the expected return type. **These annotations are not enforced automatically by the Python interpreter.** The minimal example avoids annotations to make the lifecycle easy to follow.
+
+### Context-manager lifecycle diagram
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant Caller as Application code
     participant Manager as Context manager
-    participant Resource as File or connection
+    participant Resource as Resource (if any)
 
-    Caller->>Manager: Evaluate manager expression
-    Caller->>Manager: __enter__()
-    Manager->>Resource: Acquire resource if needed
-    Resource-->>Manager: Optional handle
-    Manager-->>Caller: __enter__ returns value for "as"
+    Caller->>Manager: Construct instance and call __enter__()
+    Manager->>Resource: Acquire or prepare if needed
+    Manager-->>Caller: Return value for "as"
     Caller->>Caller: Execute with body
     alt Normal exit or early return
         Caller->>Manager: __exit__(None, None, None)
-    else Exception in body
+    else Exception raised in the body
         Caller->>Manager: __exit__(type, exception, traceback)
     end
-    Manager->>Resource: Release resource if acquired
-    Manager-->>Caller: Resume or propagate (based on exit result)
+    Manager->>Resource: Clean up if acquired
+    Manager-->>Caller: Return falsy or truthy for exception propagation
 ```
 
-**Guarantee and boundary:** once `__enter__` returns successfully, `__exit__` is invoked when leaving the managed block, including normal and exceptional exits. If `__enter__` itself raises, **that manager's `__exit__` is not called**. A manager that partially acquires resources inside `__enter__` must clean up its own partially acquired state before raising, or use a robust acquisition pattern.
+The diagram describes the general protocol, including real resource managers. The minimal printing-only example has no resource to acquire or release.
 
 ## 5. Exceptions: propagate or suppress?
 
