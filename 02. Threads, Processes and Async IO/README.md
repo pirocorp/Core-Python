@@ -63,6 +63,8 @@ Expected results: all strategies in a comparison compute **identical outputs**. 
 
 Start with [`examples/threading_io.py`](examples/threading_io.py). The sequential version waits for each simulated response before starting the next. The threaded version starts multiple OS threads and lets waiting periods overlap.
 
+**Import:** `threading` is Python's standard-library module for OS threads, locks and other thread-synchronization tools. `threading.Thread` is a thread object; `start()` runs its target on another thread, while `join()` waits synchronously for it. The core idea is familiar from C# `System.Threading`.
+
 ```python
 import threading
 
@@ -113,6 +115,8 @@ For `--requests 3 --delay 0.2`, sequential waiting is *approximately* `0.6s` and
 ### 3.1 Read the actual OS-thread demo implementation
 
 The short `worker` snippet above introduces `Thread`. The **real** [`threading_io.py`](examples/threading_io.py) adds a thread-safe `Queue` so every worker can deliver either a result or an exception. This is the actual `run_sequential()` and `run_threads()` implementation, with the helper functions imported from that same demo:
+
+**New imports:** `queue.Queue` is a thread-safe FIFO queue, conceptually similar to a synchronized producer/consumer channel. `from examples.threading_io import simulated_io, validate` loads **our own functions**: `simulated_io` simulates a delayed reply, while `validate` checks arguments. Neither is a Python built-in.
 
 ```python
 import threading
@@ -223,6 +227,8 @@ The Python sample initializes `balance = 10` and `amount = 3`, so you can run it
 
 For many independent blocking calls, direct `Thread` management is often unnecessary. [`examples/thread_pool_io.py`](examples/thread_pool_io.py) uses `concurrent.futures.ThreadPoolExecutor`.
 
+**Import:** `concurrent.futures` is the standard-library API for scheduling callables on worker pools. `ThreadPoolExecutor` manages a bounded pool of OS threads and returns `Future` results; unlike `await` in C#, calling `future.result()` **blocks** the caller. The pool and its `with` lifetime are explained below.
+
 ```python
 from concurrent.futures import ThreadPoolExecutor
 
@@ -302,6 +308,8 @@ print(run_pool(4, 0, workers=2))
 ## 5. CPU parallelism with processes
 
 [`examples/cpu_pool_comparison.py`](examples/cpu_pool_comparison.py) runs the **same** pure-Python workload (1) sequentially, (2) in a `ThreadPoolExecutor`, and (3) in a `ProcessPoolExecutor`.
+
+**New imports:** `multiprocessing` is Python's standard-library module for starting and coordinating **separate processes**. `ProcessPoolExecutor` (from `concurrent.futures`) runs submitted functions in worker processes rather than shared-memory threads. `ThreadPoolExecutor` is the thread-pool version introduced in Section 4. Here we use `multiprocessing.get_context("spawn")` to control how process workers start; the import itself starts no processes.
 
 ```python
 # Save as a real .py file before running: spawn-based workers import its module.
@@ -457,6 +465,8 @@ In the standard GIL-enabled CPython, separate processes can run pure-Python CPU 
 ## 6. Async I/O with `asyncio`
 
 [`examples/asyncio_io.py`](examples/asyncio_io.py) contrasts **sequential awaits**, `asyncio.gather()`, and structured concurrency using `asyncio.TaskGroup`.
+
+**Import:** `asyncio` is Python's standard-library framework for coroutine-based asynchronous programming, built around an **event loop**. It provides scheduling (`create_task`), non-blocking waiting (`asyncio.sleep`), grouping (`gather`, `TaskGroup`) and the application entry point `asyncio.run`. It serves purposes familiar from C# `async`/`await`, but calling a Python coroutine does **not** start its body immediately; later examples explain how scheduling differs.
 
 ```python
 import asyncio
@@ -786,6 +796,8 @@ Both examples print `request-A:ok request-B:ok` after about **0.2 seconds plus o
 ### Why blocking the event loop is dangerous
 
 [`examples/asyncio_blocking.py`](examples/asyncio_blocking.py) demonstrates the difference between blocking inside a coroutine and moving synchronous/blocking work to a thread.
+
+**Additional import:** `time` is the standard-library module for clocks and synchronous delays; `time.sleep()` blocks the **current OS thread**. We contrast it with `asyncio.sleep()`, which suspends the coroutine without blocking its event-loop thread. The code below uses `import time` to make that distinction explicit.
 
 ```python
 import asyncio
