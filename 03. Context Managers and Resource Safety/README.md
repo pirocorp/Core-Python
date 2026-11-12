@@ -864,19 +864,80 @@ failure acquired: ['file']
 failure events: acquire:file | acquire:db | release:file | error:cannot acquire db
 ```
 
-The central portion of the **real `run_batch()` function** is:
+### 8.1.1 The complete implementation behind the output
 
-```text
-with ExitStack() as stack:
-    for name in names:
-        resource = stack.enter_context(
-            acquire(name, events, fail=(name == fail_on))
-        )
-        acquired.append(resource)
-    events.append(f"work:{','.join(acquired)}")
+The call above is not magic: **both `acquire()` and `run_batch()` are ordinary functions from `examples/exit_stack.py`**. Here is their actual implementation, with only the imports added so the snippet is independently runnable:
+
+```python
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
+
+# @contextmanager is a decorator; its syntax is taught in Lesson 04.
+@contextmanager
+def acquire(name: str, events: list[str], fail: bool = False) -> Iterator[str]:
+    # This records the *attempt*; a later failure may prevent acquisition.
+    events.append(f"acquire:{name}")
+    if fail:
+        # No resource was acquired by this manager; its generator never
+        # reached yield, so its own finally is not active.
+        raise RuntimeError(f"cannot acquire {name}")
+
+    try:
+        yield name
+    finally:
+        events.append(f"release:{name}")
+
+def run_batch(
+    names: tuple[str, ...], fail_on: str | None = None
+) -> tuple[list[str], list[str]]:
+    """Return event log and successfully acquired names."""
+    events: list[str] = []
+    acquired: list[str] = []
+
+    try:
+        # ExitStack replaces deeply nested with statements when the number
+        # of resources is known only at runtime.
+        with ExitStack() as stack:
+            for name in names:
+                # enter_context calls __enter__ and registers __exit__.
+                # A later failure releases all previously acquired resources.
+                resource = stack.enter_context(
+                    acquire(name, events, fail=(name == fail_on))
+                )
+                acquired.append(resource)
+            events.append(f"work:{','.join(acquired)}")
+        # Exiting the stack releases resources in LIFO order.
+    except RuntimeError as exc:
+        events.append(f"error:{exc}")
+
+    return events, acquired
+
+# Run both the successful and failing acquisition paths.
+for title, fail_on in [("Success", None), ("Partial acquisition", "db")]:
+    events, acquired = run_batch(("file", "db", "socket"), fail_on)
+    print(f"{title}: {' | '.join(events)}")
+    print(f"Acquired before cleanup: {acquired}")
 ```
 
-Here `acquire()` is a generator-based context manager **defined in `examples/exit_stack.py`**, not a built-in Python function. Its `@contextmanager` decorator is the same one introduced in Section 7 (see Lesson 04 for decorator mechanics). It raises `RuntimeError` when `fail=True`. The surrounding function catches that failure with `except RuntimeError as exc:` *after* the entered resources are unwound.
+**Expected output:**
+
+```text
+Success: acquire:file | acquire:db | acquire:socket | work:file,db,socket | release:socket | release:db | release:file
+Acquired before cleanup: ['file', 'db', 'socket']
+Partial acquisition: acquire:file | acquire:db | release:file | error:cannot acquire db
+Acquired before cleanup: ['file']
+```
+
+**Follow the real code:**
+
+1. `acquire(name, events, fail=False)` is **our generator-based context manager**, not a Python built-in. It records `acquire:name`, raises `RuntimeError` before `yield` when `fail=True`, and records `release:name` in `finally` only after a successful entry.
+2. `run_batch(names, fail_on=None)` creates an `ExitStack` and loops over a tuple of resource names. The expression `fail=(name == fail_on)` asks this demo to fail on the named resource, if any.
+3. `stack.enter_context(acquire(...))` enters each manager and registers its exit action. Only **after a successful entry** do we append the returned handle to `acquired`.
+4. Once all entries succeed, `work:...` is recorded. When the `ExitStack` scope ends, the registered managers release resources in reverse order.
+5. If `db` raises during entry, its generator never reaches `yield`, so its own `finally` is not active. **The already-entered `file` is still released** by the stack. The enclosing `except RuntimeError as exc:` then records the error; no `work` event occurs.
+6. The pair `events, acquired = run_batch(...)` unpacks the returned two-element tuple. `' | '.join(events)` is Python's equivalent of C# `string.Join(" | ", events)`.
+
+**Boundary:** The demo records logical acquisition/release events, not real operating-system handles. In production, if acquisition fails **after** partially allocating a resource but **before** `yield`, that acquisition code must clean up its own partial state; `ExitStack` can only release managers that entered successfully.
 
 ### 8.2 New Python syntax in the demo
 
