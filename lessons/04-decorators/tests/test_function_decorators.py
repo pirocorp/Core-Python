@@ -1,7 +1,9 @@
 """Validate the initial decorator lesson without third-party packages."""
 from __future__ import annotations
 
+import asyncio
 from contextlib import redirect_stdout
+import inspect
 from io import StringIO
 from inspect import signature
 from pathlib import Path
@@ -16,7 +18,14 @@ from urllib.parse import unquote
 LESSON = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(LESSON))
 
-from examples import closures, function_decorators
+from examples import (
+    async_decorators,
+    closure_introspection,
+    closures,
+    function_decorators,
+    method_and_stdlib_decorators,
+    typed_decorators,
+)
 
 # These modules intentionally print during decoration (import time).
 with redirect_stdout(StringIO()):
@@ -130,6 +139,54 @@ class FunctionDecoratorTests(unittest.TestCase):
                 "exit: outer",
                 "result: 7",
             ],
+            "def make_accumulator(start: int):": [
+                "free vars: ('total',)",
+                "captured before: 10",
+                "first call: 15",
+                "captured after: 15",
+                "second call: 101",
+                "independent: 16",
+            ],
+            "def audit(func: Callable[P, R])": [
+                "name: calculate",
+                "audit: enter calculate",
+                "audit: exit calculate",
+                "result: 21",
+            ],
+            "def trace_async(func: Callable[P, Awaitable[R]])": [
+                "async function: True",
+                "coroutine created",
+                "async: enter",
+                "body: ok",
+                "async: exit",
+                "result: done",
+                "sync wrapper is async: False",
+                "sync wrapper: called",
+                "delayed coroutine: True",
+                "delayed body",
+                "delayed result: late",
+                "async: enter",
+                "body: error",
+                "async: exit",
+                "caught: ValueError",
+                "async: enter",
+                "body: cancel",
+                "async: exit",
+                "caught: CancelledError",
+            ],
+            "class Greeter:": [
+                "call: greet",
+                "method: Hello, Ada",
+                "call: describe",
+                "class method: Greeter",
+                "call: version",
+                "static method: 1",
+                "property: Hello",
+                "normalize: computing",
+                "normalized: ABC",
+                "cached: ABC",
+                "cache: 1 1",
+            ],
         }
         self.assertEqual(len(blocks), len(expected_cases))
         seen = set()
@@ -155,11 +212,13 @@ class FunctionDecoratorTests(unittest.TestCase):
             encoding="utf-8"
         ).strip()
         self.assertIn(demo, markdown)
-        for filename in ("closures.py", "closures.js", "parameterized_decorators.py", "metadata_and_stacking.py"):
-            example = (LESSON / "examples" / filename).read_text(
-                encoding="utf-8"
-            ).strip()
-            self.assertIn(example, markdown, f"README drifted from {filename}")
+        for example_file in sorted((LESSON / "examples").iterdir()):
+            if example_file.suffix not in {".py", ".js"}:
+                continue
+            example = example_file.read_text(encoding="utf-8").strip()
+            self.assertIn(
+                example, markdown, f"README drifted from {example_file.name}"
+            )
 
     def test_local_markdown_links_are_valid(self) -> None:
         markdown = (LESSON / "README.md").read_text(encoding="utf-8")
@@ -256,6 +315,121 @@ class AdvancedDecoratorTests(unittest.TestCase):
             "exit: inner-error",
             "exit: outer-error",
         ])
+
+class ProductionDecoratorTests(unittest.TestCase):
+    def test_closure_cells_are_live_and_per_factory_call(self) -> None:
+        first = closure_introspection.make_accumulator(10)
+        second = closure_introspection.make_accumulator(100)
+        self.assertEqual(first.__code__.co_freevars, ("total",))
+        self.assertIsNotNone(first.__closure__)
+        self.assertEqual(first.__closure__[0].cell_contents, 10)
+        self.assertEqual(first(5), 15)
+        self.assertEqual(first.__closure__[0].cell_contents, 15)
+        self.assertEqual(second(1), 101)
+        self.assertEqual(first(1), 16)
+
+    def test_typed_decorator_preserves_signature_contract_and_result(self) -> None:
+        self.assertEqual(typed_decorators.calculate.__name__, "calculate")
+        self.assertEqual(
+            inspect.signature(typed_decorators.calculate),
+            inspect.signature(typed_decorators.calculate.__wrapped__),
+        )
+        out = StringIO()
+        with redirect_stdout(out):
+            result = typed_decorators.calculate(7, multiplier=3)
+        self.assertEqual(result, 21)
+        self.assertEqual(out.getvalue().splitlines(), [
+            "audit: enter calculate", "audit: exit calculate"
+        ])
+
+    def test_typed_decorator_finally_runs_on_error(self) -> None:
+        @typed_decorators.audit
+        def fail() -> None:
+            raise LookupError("problem")
+
+        out = StringIO()
+        with redirect_stdout(out), self.assertRaisesRegex(LookupError, "problem"):
+            fail()
+        self.assertEqual(out.getvalue().splitlines(), [
+            "audit: enter fail", "audit: exit fail"
+        ])
+
+    def test_sync_wrapper_for_async_does_not_appear_as_coroutine_function(self) -> None:
+        self.assertFalse(inspect.iscoroutinefunction(async_decorators.delayed))
+        out = StringIO()
+        with redirect_stdout(out):
+            coroutine = async_decorators.delayed()
+            self.assertTrue(inspect.iscoroutine(coroutine))
+            self.assertEqual(out.getvalue().splitlines(), ["sync wrapper: called"])
+            result = asyncio.run(coroutine)
+        self.assertEqual(result, "late")
+        self.assertEqual(out.getvalue().splitlines(), [
+            "sync wrapper: called", "delayed body"
+        ])
+
+    def test_async_wrapper_does_not_execute_until_awaited(self) -> None:
+        self.assertTrue(inspect.iscoroutinefunction(async_decorators.work))
+        out = StringIO()
+        with redirect_stdout(out):
+            coroutine = async_decorators.work("ok")
+            self.assertEqual(out.getvalue(), "")
+            result = asyncio.run(coroutine)
+        self.assertEqual(result, "done")
+        self.assertEqual(out.getvalue().splitlines(), [
+            "async: enter", "body: ok", "async: exit"
+        ])
+
+    def test_async_wrapper_propagates_error_after_finally(self) -> None:
+        out = StringIO()
+        with redirect_stdout(out), self.assertRaisesRegex(ValueError, "boom"):
+            asyncio.run(async_decorators.work("error"))
+        self.assertEqual(out.getvalue().splitlines(), [
+            "async: enter", "body: error", "async: exit"
+        ])
+
+    def test_async_wrapper_cancellation_propagates_after_finally(self) -> None:
+        async def scenario() -> bool:
+            ready = asyncio.Event()
+            task = asyncio.create_task(async_decorators.work("cancel", ready))
+            await ready.wait()
+            self.assertFalse(task.done())
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            return task.cancelled()
+
+        out = StringIO()
+        with redirect_stdout(out):
+            cancelled = asyncio.run(scenario())
+        self.assertTrue(cancelled)
+        self.assertEqual(out.getvalue().splitlines(), [
+            "async: enter", "body: cancel", "async: exit"
+        ])
+
+    def test_methods_bind_self_cls_and_static_correctly(self) -> None:
+        obj = method_and_stdlib_decorators.Greeter("Hello")
+        out = StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(obj.greet("Ada"), "Hello, Ada")
+            self.assertEqual(obj.describe(), "Greeter")
+            self.assertEqual(obj.version(), 1)
+            self.assertEqual(obj.label, "Hello")
+        self.assertEqual(out.getvalue().splitlines(), [
+            "call: greet", "call: describe", "call: version"
+        ])
+
+    def test_lru_cache_reuses_pure_result_and_reports_hits(self) -> None:
+        normal = method_and_stdlib_decorators.normalize
+        normal.cache_clear()
+        out = StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(normal("  abc "), "ABC")
+            self.assertEqual(normal("  abc "), "ABC")
+        self.assertEqual(out.getvalue().splitlines(), ["normalize: computing"])
+        info = normal.cache_info()
+        self.assertEqual((info.hits, info.misses), (1, 1))
+        normal.cache_clear()
+
 
 if __name__ == "__main__":
     unittest.main()
