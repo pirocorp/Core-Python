@@ -13,14 +13,15 @@ def write_and_read(text: str) -> tuple[str, bool]:
         path = Path(directory) / "example.txt"
 
         # This matches the first 'with open(...) as file' teaching example.
-        # __enter__ opens the file. The 'as writer' target is the value
-        # returned by __enter__, not a new variable scope.
+        # open(...) opens the file BEFORE the with protocol calls __enter__().
+        # File.__enter__ returns the file object for the 'as writer' target.
+        # The matching __exit__ closes it when the block finishes.
         with open(path, "w", encoding="utf-8") as writer:
             writer.write(text)
 
         with open(path, "r", encoding="utf-8") as reader:
             result = reader.read()
-            assert not reader.closed  # The resource is still open in the body.
+            # The file stays open inside the with body.
 
         # __exit__ already ran, so the file has been closed.
         return result, reader.closed
