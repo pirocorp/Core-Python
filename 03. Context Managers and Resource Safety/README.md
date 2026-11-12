@@ -26,7 +26,7 @@ For example, `with open("example.txt") as file:` resembles `using var file = ...
 **Two important protocol differences from C#:**
 
 1. Python calls `__enter__()` **at entry** and `__exit__()` **at exit** (or `__aenter__()` / `__aexit__()` asynchronously). The value after `as` is **whatever the enter method returns**, not necessarily the manager instance, unlike the normal C# `using` variable.
-2. Python's exit method receives any pending body exception and may **suppress it by returning `True`**. C# `Dispose()` / `DisposeAsync()` has no equivalent suppression return value. Cleanup still runs after a **successful enter**, including when the body raises or returns early.
+2. Python's exit method receives any pending body exception and may **suppress it by returning `True`**. In plain language, *suppress* means **"consider this error handled; do not send it to the outer `except`"**. Returning `False` means **"I have cleaned up, but the error should still reach the outer `except`"**. C# `Dispose()` / `DisposeAsync()` has no equivalent suppression return value. Cleanup still runs after a **successful enter**, including when the body raises or returns early. Section 5 demonstrates both outcomes.
 
 **Decision rule:** Choose `with` versus `async with` based on the **resource's supported protocol**, not on whether the surrounding function is `async def`. Use `async def` and `await` when the **operation itself is asynchronous**. Sections 3–9 build from this C# mental model to the exact Python semantics.
 
@@ -501,7 +501,14 @@ Read this **top to bottom**: (1) an exception occurred; (2) the caller configure
 | Different exception | `ValueError` | `RuntimeError` | `False` | Python propagates the error |
 | Normal exit | `ValueError` | `None` | `False` | Exit completes normally; return value is ignored |
 
-C# comparison: `issubclass(actual, allowed)` is conceptually like `allowed.IsAssignableFrom(actual)` using `System.Type` values. Python's `return True` does **not mean “we wrote a catch here”**: it tells the interpreter that the **pending** exception from the `with` body was handled by the context manager.
+**What does "suppress an exception" actually mean?** Imagine the code inside `with` throws `ValueError`, and an outer `try/except ValueError` is ready to catch it. Python first gives the context manager a chance to clean up:
+
+- **`__exit__() -> False`**: "I cleaned up, but I have **not** handled this error." Python propagates `ValueError` to the outer `except`. This is the normal **C# `using` inside `try/catch`** mental model.
+- **`__exit__() -> True`**: "I cleaned up **and I consider this error handled**." Python discards the *pending* `ValueError`, so the outer `except` is **not executed**. Think of an exception caught and **not rethrown**, except this decision is made by the context manager's exit protocol rather than by an explicit C# `catch`.
+
+In **both** cases the remaining statements inside the interrupted `with` block are skipped. Execution continues **after the `with` statement** (or after the surrounding `try/except`). Returning `True` does not undo a failed operation, retry it, or resume at the failed line. Avoid suppressing unexpected failures because it can hide real defects. Use suppression only when ignoring that specific exception is intentionally safe.
+
+**C# distinction:** `issubclass(actual, allowed)` is conceptually like `allowed.IsAssignableFrom(actual)` using `System.Type`. C# `Dispose()` / `DisposeAsync()` cannot tell the runtime to swallow the exception simply by returning a Boolean; Python's `__exit__()` / `__aexit__()` can.
 
 ### 5.5 `run_exception()`: full execution trace
 
@@ -1484,6 +1491,50 @@ print(asyncio.run(run_async_error()))
 ```
 
 `raise ValueError("operation failed")` interrupts the `async with` body. The `finally` inside `async_resource()` awaits cleanup, records `close:db`, and then the outer `except ValueError:` catches the propagated exception. **The handler runs after cleanup**, not before.
+
+**C# mental translation: `await using` inside an outer `try/catch`.** The following is a complete C# top-level program (.NET 6+) illustrating the same **order**. It uses a simple disposable demo resource rather than a real database:
+
+```csharp
+using System;
+using System.Threading.Tasks;
+
+try
+{
+    await using (var resource = new DemoResource())
+    {
+        Console.WriteLine("body:raise");
+        throw new InvalidOperationException("operation failed");
+    } // DisposeAsync() completes before the outer catch runs.
+}
+catch (InvalidOperationException)
+{
+    Console.WriteLine("caught:InvalidOperationException");
+}
+
+sealed class DemoResource : IAsyncDisposable
+{
+    public DemoResource() => Console.WriteLine("open:db");
+
+    public ValueTask DisposeAsync()
+    {
+        Console.WriteLine("close:db");
+        return ValueTask.CompletedTask;
+    }
+}
+```
+
+**Expected C# output:**
+
+```text
+open:db
+body:raise
+close:db
+caught:InvalidOperationException
+```
+
+The analogy is about **scoped cleanup followed by exception handling**. Unlike Python's `__aenter__()`, C# `await using` does not itself provide an asynchronous entry hook; if acquiring the resource requires asynchronous I/O, C# performs that acquisition separately (for example with `await OpenConnectionAsync()`).
+
+**And what about suppression here?** Our Python `async_resource()` performs cleanup in `finally`, but **does not catch `ValueError`**, so the error propagates to the outer `except` — just like the C# example. A Python manager could deliberately suppress a body exception by having `__aexit__()` return `True` (or having an `@asynccontextmanager` generator catch it without re-raising). In that case the outer `except ValueError` would **not** run. This is an **optional exception policy**, not the purpose of `async with` itself.
 
 ## 10. C#/.NET comparison: capabilities and limits
 
