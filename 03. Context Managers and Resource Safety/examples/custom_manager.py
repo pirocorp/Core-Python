@@ -43,7 +43,26 @@ class MyContextManager:
         #   exc_value     -> ValueError("demo failure") (the exception OBJECT)
         #   exc_traceback -> the traceback describing where it happened
         # On normal exit, all three are None.
+        #
+        # Python's inline conditional expression:
+        #     value_if_true if condition else value_if_false
+        # is similar to C#'s "condition ? value_if_true : value_if_false".
+        #
+        # The next line is equivalent to:
+        #     if exc_type is not None:
+        #         label = exc_type.__name__  # e.g. "ValueError"
+        #     else:
+        #         label = "none"
+        #
+        # '__name__' gives the NAME of the exception class (not its message).
+        # "none" is a string for logging; None is Python's null-like value.
         label = exc_type.__name__ if exc_type is not None else "none"
+
+        # f"..." is Python string interpolation, like C# $"...".
+        # For self.name="guard" and label="ValueError", this produces
+        # the string "exit:guard:ValueError".
+        # list.append(value) adds an item, like List<T>.Add(value) in C#.
+        # This is LOGGING ONLY: it neither catches nor suppresses the error.
         self.events.append(f"exit:{self.name}:{label}")
 
         # Python decides what happens NEXT based on this return value:
