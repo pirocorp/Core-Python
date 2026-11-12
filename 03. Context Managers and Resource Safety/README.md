@@ -10,7 +10,25 @@ Applications acquire files, locks, database connections, temporary directories, 
 
 A **context manager** defines what happens when a block begins and ends. Python's `with` statement calls the context manager's `__enter__()` method before running the block and its `__exit__()` method when leaving it, including on exceptions and early `return` or `break` — **provided `__enter__()` completed successfully**.
 
-The closest C# analogy is `using` with `IDisposable`. Both help with deterministic cleanup, but Python's `__exit__()` also receives exception information and can **suppress** a pending exception by returning a truthy value. C# `Dispose()` has no equivalent return-value mechanism.
+### First mental model for C# developers: `with` is `using`
+
+**Think of Python `with` as C# `using`, and Python `async with` as C# `await using`.** Both express *resource lifetime*, not the type of function you are writing. By contrast, `async def` is Python's way to declare an asynchronous function (roughly C# `async Task` or `async Task<T>`); it does **not** mean you must use `async with`.
+
+| C# | Python | What determines the choice? |
+|---|---|---|
+| `using` with `IDisposable` | `with` with `__enter__()` / `__exit__()` | The object supports **synchronous** context management |
+| `await using` with `IAsyncDisposable` | `async with` with `__aenter__()` / `__aexit__()` | The object supports **asynchronous** context management; use it inside `async def` |
+| `async Task<T>` | `async def` | The **function** needs to await asynchronous work, whether or not it manages a resource |
+| `await operation` | `await operation` | Await a coroutine/awaitable; **no context manager** is needed unless a resource has a managed lifetime |
+
+For example, `with open("example.txt") as file:` resembles `using var file = ...` for a synchronous file resource. `async with AsyncConnection("db", events) as name:` resembles `await using` for an asynchronously managed connection. And `async def fetch_data(): ...` can use `await` **without either kind of `with`**. A single `async def` can also contain a regular `with` when the resource's context-manager protocol is synchronous.
+
+**Two important protocol differences from C#:**
+
+1. Python calls `__enter__()` **at entry** and `__exit__()` **at exit** (or `__aenter__()` / `__aexit__()` asynchronously). The value after `as` is **whatever the enter method returns**, not necessarily the manager instance, unlike the normal C# `using` variable.
+2. Python's exit method receives any pending body exception and may **suppress it by returning `True`**. C# `Dispose()` / `DisposeAsync()` has no equivalent suppression return value. Cleanup still runs after a **successful enter**, including when the body raises or returns early.
+
+**Decision rule:** Choose `with` versus `async with` based on the **resource's supported protocol**, not on whether the surrounding function is `async def`. Use `async def` and `await` when the **operation itself is asynchronous**. Sections 3–9 build from this C# mental model to the exact Python semantics.
 
 We start with the built-in file manager, then implement the protocol ourselves, and finally handle nested, dynamic, and asynchronous resources.
 
