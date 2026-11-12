@@ -76,9 +76,32 @@ python -m unittest discover -s tests -v
 
 On systems where the Python executable is called `python3` or `py -3`, substitute that launcher consistently.
 
-## 3. `with` and `as`: what actually happens?
+## 3. `with` and `as`: start with reading a file
 
-Start with [`examples/file_resources.py`](examples/file_resources.py):
+The simplest practical context-manager example is **reading a file without manually calling `close()`**:
+
+```python
+# Assume example.txt already exists in the current working directory.
+with open("example.txt", "r", encoding="utf-8") as file:
+    data = file.read()
+
+# The file is automatically closed when leaving the with block.
+```
+
+### Python syntax note — four lines, one resource lifecycle
+
+1. `open("example.txt", "r", encoding="utf-8")` opens an existing text file for **reading** and returns a file object that supports the context-manager protocol. `"r"` means read mode; `encoding="utf-8"` specifies the text encoding.
+2. `with ... as file:` calls the file object's `__enter__()`. The returned object is assigned to the local name `file`; `as` does **not** create a new variable scope.
+3. `data = file.read()` reads the contents into the variable `data`.
+4. When the indented block ends, Python calls the object's `__exit__()`, which **closes the file**, even if reading raises an exception. You do not write `file.close()` yourself.
+
+**C# comparison:** this is similar to `using var reader = new StreamReader("example.txt");` followed by `reader.ReadToEnd()`. Python's `with` makes the boundary of the resource lifetime explicit through indentation.
+
+**Important for a runnable exercise:** the short snippet above assumes `example.txt` exists. Running it without creating the file first produces `FileNotFoundError`. The complete [`examples/file_resources.py`](examples/file_resources.py) below **creates a temporary input**, so no setup, manual file creation, or cleanup is required.
+
+### A complete, self-contained file example
+
+This longer version makes the file lifecycle visible and uses `TemporaryDirectory` so you can run it on any supported machine:
 
 ```python
 from pathlib import Path
@@ -87,10 +110,10 @@ from tempfile import TemporaryDirectory
 with TemporaryDirectory() as directory:
     path = Path(directory) / "example.txt"
 
-    with path.open("w", encoding="utf-8") as writer:
+    with open(path, "w", encoding="utf-8") as writer:
         writer.write("Hello from Python")
 
-    with path.open("r", encoding="utf-8") as reader:
+    with open(path, "r", encoding="utf-8") as reader:
         contents = reader.read()
         print("Open inside with:", not reader.closed)
 
@@ -107,15 +130,15 @@ Closed after with: True
 Hello from Python
 ```
 
-### Python syntax notes
+### Additional Python syntax notes
 
-- `with EXPRESSION as TARGET:` evaluates `EXPRESSION` to obtain a **context manager**. Python calls its `__enter__()`, then assigns the **returned value** to `TARGET`. The value need not be the manager object itself.
-- The indented statements form the managed **suite** (block). When it exits, Python invokes `__exit__()`.
-- `as writer` is **not** a type declaration (compare C# `var writer = ...`), and it does not create a separate lexical scope. The name `reader` is accessible after `with`, although the **file is closed**.
+- `with EXPRESSION as TARGET:` evaluates an expression to obtain a context manager, calls its `__enter__()`, and assigns the **return value** to `TARGET` (which need not be the manager itself). Python calls `__exit__()` when leaving the block.
+- `with open(path, ...) as reader` and `with path.open(...) as reader` are both valid. The first explicitly invokes the built-in `open()` function; the second calls the equivalent file-opening method on a `Path` object.
 - `Path(directory) / "example.txt"` uses the `pathlib.Path` `/` operator to join filesystem path segments. It is **not arithmetic division**.
-- `encoding="utf-8"` is a **keyword argument**. Explicit encoding avoids machine-default differences.
-- The two file modes are `"w"` (write, replacing prior contents) and `"r"` (read).
-- `with TemporaryDirectory() as directory` manages the directory's lifecycle. The value `directory` is a **path string**, not the context-manager object.
+- `encoding="utf-8"` is a **keyword argument**. Explicit encoding avoids platform-dependent defaults.
+- `"w"` means **write, replacing existing contents**; `"r"` means **read**.
+- `with TemporaryDirectory() as directory` manages a temporary directory. Its `as` value is a **path string**, and the directory is deleted on exit.
+- The `reader` variable still exists after its `with` block, but the underlying file is **already closed**.
 
 ### How `with` relates to `try/finally`
 
