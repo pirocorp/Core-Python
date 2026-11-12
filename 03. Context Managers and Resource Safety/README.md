@@ -513,17 +513,21 @@ flowchart TD
 
 ## 6. Nesting and reverse-order release (LIFO)
 
+The actual `run_nested()` function from `examples/custom_manager.py` is reproduced below. It uses the extended `MyContextManager` already defined in Section 5.1:
+
 ```python
 from examples.custom_manager import MyContextManager
 
-events: list[str] = []
+def run_nested() -> list[str]:
+    events: list[str] = []
+    # Multiple managers are nested left to right and released right to left.
+    with MyContextManager("outer", events) as outer, MyContextManager(
+        "inner", events
+    ) as inner:
+        events.append(f"body:{outer},{inner}")
+    return events
 
-with MyContextManager("outer", events) as outer, MyContextManager(
-    "inner", events
-) as inner:
-    events.append(f"body:{outer},{inner}")
-
-print(events)
+print(run_nested())
 ```
 
 **Expected output:**
