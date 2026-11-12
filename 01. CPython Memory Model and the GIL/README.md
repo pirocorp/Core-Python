@@ -20,7 +20,9 @@ python examples/factorial_threads.py --n 12000 --repeats 3
 python -m unittest discover -s tests -v
 ```
 
-The alias check should print `True`, an unreachable reference cycle should disappear after `gc.collect()`, the factorial results must match, and all **five unit tests** should pass. Reference-count values, thread durations and GC statistics can vary. Code has been checked on CPython 3.13.5.
+The alias check should print `True`, an unreachable reference cycle should disappear after `gc.collect()`, the factorial results must match, and all **five functional unit tests** plus the README self-sufficiency checks should pass. Reference-count values, thread durations and GC statistics can vary. Code has been checked on CPython 3.13.5.
+
+**Self-sufficiency guarantee:** the four executable demos are explained through their real function implementations below, not only linked by filename. The copied Python blocks use only the standard library and can be run individually; the source-fidelity test checks that the embedded implementations remain consistent with the demo files. Benchmark timings and CPython reference counts are deliberately treated as observations, not exact expectations.
 
 ## Start here — what is the GIL?
 
@@ -79,6 +81,49 @@ The following diagram shows **three real OS threads** sharing a single GIL-enabl
 **What it does not demonstrate:** a guaranteed execution order, equal CPU time, or the only way threads can switch. CPython can also switch between **CPU-bound** Python threads without waiting for I/O. The interpreter's switch interval (often 5 ms) is a scheduling hint, not a fixed time slice; OS scheduling and native extension behavior also matter. Some native code can release the GIL and perform parallel work.
 
 To observe overlapping waits in practice, run [the I/O-wait example](examples/io_wait_threads.py). To observe the limitation for pure-Python CPU computation, run [the factorial comparison](examples/factorial_threads.py).
+
+### 3.1 The complete I/O-wait experiment from the demo
+
+The command above runs **two different implementations** from [`io_wait_threads.py`](examples/io_wait_threads.py): `sequential_waits()` waits twice on the calling thread; `threaded_waits()` starts two real OS threads and joins them. Here is their **actual source**, with the required imports and a compact runnable call:
+
+```python
+from threading import Thread
+from time import perf_counter, sleep
+
+def sequential_waits(seconds: float) -> float:
+    start = perf_counter()
+    for _ in range(2):
+        sleep(seconds)
+    return perf_counter() - start
+
+
+def threaded_waits(seconds: float) -> float:
+    threads = [Thread(target=sleep, args=(seconds,)) for _ in range(2)]
+    start = perf_counter()
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return perf_counter() - start
+
+serial = sequential_waits(0.01)
+concurrent = threaded_waits(0.01)
+print("Sequential duration is non-negative:", serial >= 0)
+print("Threaded duration is non-negative:", concurrent >= 0)
+```
+
+**Expected output:**
+
+```text
+Sequential duration is non-negative: True
+Threaded duration is non-negative: True
+```
+
+This deterministic check proves the functions executed; it does **not** prove a speedup. To observe timing differences, use the original CLI command with `--seconds 0.4` and compare multiple measurements.
+
+**Execution walkthrough:** `start = perf_counter()` records a high-resolution clock reading; `perf_counter() - start` calculates elapsed **wall-clock seconds**, not CPU consumption. The first function's `for _ in range(2): sleep(seconds)` performs two waits one after the other. The underscore `_` is a conventional name meaning the loop value is unused. In the second, `threads = [Thread(target=sleep, args=(seconds,)) for _ in range(2)]` is a **list comprehension** creating two thread objects without starting them. `target=sleep` passes a function reference, and the comma in `args=(seconds,)` makes a one-item tuple (similar in purpose to a method-argument array). The first `for` starts both threads; the second `for` joins them. A `join()` blocks the caller, similar in purpose to waiting for a C# `Thread`, and does not return an async `Task`.
+
+`time.sleep` simulates **blocking I/O waits**, so this is **not** a network or disk benchmark and cannot show CPU scaling under the GIL. The functions return measured durations; benchmark numbers are not stable enough for fixed-value tests.
 
 ### 4. CPU-bound versus I/O-bound: why the difference matters
 
@@ -154,13 +199,97 @@ The value is for illustration; it is not guaranteed to be identical across imple
 
 The precise count is **not a portable invariant**. More hidden references, interpreter internals, immortal objects and free-threading implementations may affect it. Use `sys.getrefcount` for runtime investigation, not application logic. Compare this with C# reference variables, but remember that .NET does not use ordinary CPython's reference-count-based deallocation algorithm.
 
-Run `python examples/reference_count.py`: it displays the count before and after `b = a` and `del b` and verifies object identity.
+Run `python examples/reference_count.py` to execute the following complete demonstration.
+
+### The actual reference-count demo
+
+The short two-line example above illustrates the idea. The file [`reference_count.py`](examples/reference_count.py) shows **each step**, including the count before aliasing, after aliasing, and after removing the alias:
+
+```python
+import platform
+import sys
+
+def run() -> None:
+    if platform.python_implementation() != "CPython":
+        print("This example illustrates CPython internals; numbers may differ.")
+
+    a = []
+    print(f"After a = []:                 {sys.getrefcount(a)}")
+
+    b = a
+    print(f"After b = a:                  {sys.getrefcount(a)}")
+    print(f"a is b:                       {a is b}")
+
+    del b
+    print(f"After del b:                  {sys.getrefcount(a)}")
+    print("Each getrefcount(a) call includes a temporary argument reference.")
+    print("Avoid asserting exact numeric counts in production code.")
+
+run()
+```
+
+**Expected behavior:** `a is b` prints `True`. The count shown after `b = a` is normally one higher than before, and the count after `del b` normally returns to the previous value for this isolated CPython list. **Do not assert a specific numeric reference count**: interpreter versions, temporary references and runtime modes matter.
+
+The distinction between Python names and C# references is important:
+
+- `a = []` creates a mutable list object and binds the name `a` to it.
+- `b = a` adds **another reference**, not a copy. Python `is` tests *object identity*; C# reference equality is a useful analogy.
+- `del b` removes the **name binding**, not the list object `a` still refers to. This does not explicitly dispose an object.
+- `sys.getrefcount(a)` itself temporarily references the object while counting, so the measurement includes that reference.
+- The `f"..." ` syntax is an **f-string**, analogous to C# `$"..." `. `platform.python_implementation()` reports the runtime implementation.
+
+
 
 ### Important addition: cyclic garbage collection
 
 A basic explanation of reference counting says the object can be reclaimed when its reference count reaches zero. This describes the main idea of ordinary CPython reference counting but omits **reference cycles**. A self-referential object can have a nonzero count while no longer reachable from the program. CPython also uses a **cyclic garbage collector** to reclaim many such cycles. Object reclamation does not imply that the OS immediately sees lower process RSS; allocators may retain memory.
 
 `python examples/reference_cycles.py` creates a cycle and observes a weak reference before and after explicit collection. This is an **additional example** demonstrating a case not covered by simple reference-count explanations.
+
+### The complete unreachable-cycle example
+
+To understand *why reference counting is insufficient*, the actual [`reference_cycles.py`](examples/reference_cycles.py) is reproduced below rather than hidden in a separate script:
+
+```python
+from __future__ import annotations
+import gc
+import weakref
+
+class Node:
+    def __init__(self) -> None:
+        self.next: Node | None = None
+
+def make_unreachable_cycle() -> weakref.ReferenceType[Node]:
+    node = Node()
+    node.next = node  # One object references itself.
+    return weakref.ref(node)
+
+
+def run() -> None:
+    gc.collect()  # Remove previous unrelated garbage for clarity.
+    ref = make_unreachable_cycle()
+    print(f"Alive after scope ends: {ref() is not None}")
+    unreachable = gc.collect()
+    print(f"Alive after gc.collect(): {ref() is not None}")
+    print(f"Unreachable objects collected (implementation-dependent): {unreachable}")
+    assert ref() is None
+
+run()
+```
+
+**Expected behavior:** `Alive after scope ends: True` and `Alive after gc.collect(): False`; the **number of objects collected can vary**.
+
+**Why it works:**
+
+1. `class Node:` declares a class. Its `__init__()` sets `self.next` to `None`. The annotation `Node | None` means a `Node` reference or Python's null-like value; type annotations do not automatically enforce types.
+2. `node.next = node` creates a **self-cycle**. When `make_unreachable_cycle()` returns, the local name `node` disappears, but the object continues to reference itself, so reference counting alone cannot reclaim it.
+3. `weakref.ref(node)` creates a **weak reference** that does **not** keep the object alive. Invoking `ref()` returns the object if still alive, or `None` once collected.
+4. `gc.collect()` explicitly requests cyclic garbage collection. After collection, `ref() is None` confirms that the otherwise-unreachable node was reclaimed. `is None` checks identity with the singleton `None`, analogous in purpose to a null check in C#.
+5. `assert ref() is None` is a simple runtime assertion for the demonstration, **not** a replacement for structured production error handling. In C# you may recognize a broad analogy with the GC reclaiming unreachable object graphs, although CPython combines reference counting with cycle detection.
+
+This example is specific to CPython-style reference-count analysis. Garbage-collector behavior and the count of collected objects may vary across implementations.
+
+
 
 ### What the traditional GIL actually protects
 
@@ -235,6 +364,71 @@ Wall-clock timings vary: do not assert a fixed ratio or infer thread safety.
 ```
 
 **Do not expect a fixed duration or speed ratio.** Scheduling, CPU load, processor, native operations and the interpreter build all matter. In a standard GIL-enabled CPython process, two CPU-heavy Python threads generally provide no substantial speedup and may be slower. That does **not** mean the threads execute as a single indivisible sequential block; bytecode execution can interleave.
+
+### How the real benchmark creates and compares its threads
+
+The `factorial()` definition above is only the CPU workload. The important **GIL experiment** lives in these actual functions from [`factorial_threads.py`](examples/factorial_threads.py):
+
+```python
+import threading
+from time import perf_counter
+from examples.factorial_threads import factorial
+
+def factorial_workload(num: int, repeats: int) -> int:
+    """Repeat a CPU-bound operation to make the cost measurable."""
+    value = 1
+    for _ in range(repeats):
+        value = factorial(num)
+    return value
+
+
+def sequential(num: int, repeats: int) -> tuple[float, list[int]]:
+    start = perf_counter()
+    results = [factorial_workload(num, repeats) for _ in range(2)]
+    return perf_counter() - start, results
+
+
+def threaded(num: int, repeats: int) -> tuple[float, list[int]]:
+    results: list[int | None] = [None, None]
+    errors: list[BaseException | None] = [None, None]
+
+    def worker(index: int) -> None:
+        try:
+            results[index] = factorial_workload(num, repeats)
+        except BaseException as exc:
+            # Thread exceptions do not automatically propagate on join().
+            errors[index] = exc
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(2)]
+    start = perf_counter()
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    for error in errors:
+        if error is not None:
+            raise RuntimeError("Worker failed") from error
+    assert all(result is not None for result in results)
+    return perf_counter() - start, [result for result in results if result is not None]
+
+_, serial_results = sequential(100, 2)
+_, threaded_results = threaded(100, 2)
+print("Same results:", serial_results == threaded_results)
+```
+
+**Expected output:** `Same results: True`.
+
+**Execution walkthrough:**
+
+1. `factorial_workload(num, repeats)` performs `factorial(num)` repeatedly, ensuring the work is CPU-bound and producing one integer result. Its loop variable `_` is intentionally unused.
+2. `sequential()` computes two workloads with a **list comprehension** `[factorial_workload(...) for _ in range(2)]`, then returns `(elapsed_seconds, results)` as a tuple. `_, serial_results = ...` is **tuple unpacking**: the caller discards the measured time and retains the result list.
+3. `threaded()` creates two `threading.Thread` instances, each invoking the **nested** `worker(index)`. The worker function **captures** `num`, `repeats`, `results` and `errors` from its outer function; this is a **closure** (covered in Lesson 04). `args=(i,)` passes the index to the worker.
+4. Both threads start before either is joined; `join()` waits for thread completion. Results are written by index, not by finish time, so both modes yield comparable ordering.
+5. A child thread's exception is **not re-raised by `join()`**. Each worker saves the error; the caller checks `errors` and uses `raise RuntimeError("Worker failed") from error` to preserve the original cause, conceptually like C# inner exceptions.
+6. `all(result is not None for result in results)` validates that workers populated every result. The final comprehension `[result for result in results if result is not None]` removes the optional-`None` type and returns `list[int]`.
+7. The two functions return timings in **seconds**, but no performance ratio is asserted. On traditional GIL-enabled CPython, both threads still compete to execute Python bytecode. On free-threaded builds the outcome can differ.
+
+**Why the nested worker is safe here:** The worker is run in threads *within the same process*. Later, Lesson 02 explains why a nested worker like this is generally inappropriate for a `ProcessPoolExecutor(spawn)`, which must serialize/import its worker function.
 
 ### Comparison with C#/.NET
 
