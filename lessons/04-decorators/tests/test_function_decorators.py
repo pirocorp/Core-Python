@@ -54,7 +54,12 @@ class FunctionDecoratorTests(unittest.TestCase):
             with self.subTest(snippet=i):
                 output = StringIO()
                 with redirect_stdout(output):
-                    exec(compile(snippet, f"README.md snippet {i}", "exec"), {})
+                    # Execute the copied example as a stand-alone script,
+                    # including its if __name__ == "__main__" entry point.
+                    exec(
+                        compile(snippet, f"README.md snippet {i}", "exec"),
+                        {"__name__": "__main__"},
+                    )
                 if i == 1:
                     self.assertEqual(
                         output.getvalue().splitlines(),
