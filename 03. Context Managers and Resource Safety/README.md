@@ -1105,7 +1105,7 @@ failure events: acquire:file | acquire:db | release:file | error:cannot acquire 
 
 ### 8.2.1 The complete implementation behind the output
 
-The call above is not magic: **both `acquire()` and `run_batch()` are ordinary functions from `examples/exit_stack.py`**. Here is their actual implementation, with only the imports added so the snippet is independently runnable. The additional `Iterator` import comes from Python's standard-library `collections.abc`: it describes an **iterator protocol** in the return type hint `Iterator[str]` (a sequence of yielded strings), not an extra resource or a new context manager. The `ExitStack` and `contextmanager` imports have already been explained in Section 8.1.
+The call above is not magic: **both `acquire()` and `run_batch()` are ordinary functions from `examples/exit_stack.py`**. Here is their actual implementation, with only the imports added so the snippet is independently runnable. The additional `Iterator` import comes from Python's standard-library `collections.abc`: it identifies the **iterator protocol** in the return type hint `Iterator[str]` (an iterator that yields strings), not an extra resource or a new context manager. The `ExitStack` and `contextmanager` imports have already been explained in Section 8.1.
 
 ```python
 from collections.abc import Iterator
