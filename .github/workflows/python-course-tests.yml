@@ -6,6 +6,7 @@ on:
       - "01. CPython Memory Model and the GIL/**"
       - "02. Threads, Processes and Async IO/**"
       - "03. Context Managers and Resource Safety/**"
+      - "lessons/04-decorators/**"
       - ".github/workflows/python-course-tests.yml"
   push:
     branches: [main]
@@ -13,6 +14,7 @@ on:
       - "01. CPython Memory Model and the GIL/**"
       - "02. Threads, Processes and Async IO/**"
       - "03. Context Managers and Resource Safety/**"
+      - "lessons/04-decorators/**"
       - ".github/workflows/python-course-tests.yml"
 
 jobs:
@@ -33,3 +35,5 @@ jobs:
         run: python -m unittest discover -s "02. Threads, Processes and Async IO/tests" -v
       - name: Test Lesson 03
         run: python -m unittest discover -s "03. Context Managers and Resource Safety/tests" -v
+      - name: Test Lesson 04 foundation
+        run: python -m unittest discover -s "lessons/04-decorators/tests" -v
