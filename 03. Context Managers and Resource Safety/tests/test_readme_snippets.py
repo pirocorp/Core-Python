@@ -53,6 +53,11 @@ class ReadmeSnippetTests(unittest.TestCase):
                 "@asynccontextmanager\nasync def async_resource",
                 "\n\nasync def run_connection",
             ),
+            (
+                "contextlib_tools.py",
+                "def run_optional(enabled:",
+                "\n\ndef main()",
+            ),
         ]
         for filename, start_marker, end_marker in embedded_functions:
             source = (LESSON / "examples" / filename).read_text(encoding="utf-8")
