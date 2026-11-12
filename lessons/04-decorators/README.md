@@ -1,7 +1,5 @@
 # 04 — Decorators, Closures, and Cross-Cutting Concerns
 
-**Development status:** The foundation below is written and tested; parameterized decorators, `*args` / `**kwargs`, stacked decorators, `functools.wraps`, and production sync/async wrappers remain to be developed before this lesson is promoted from `lessons/` to a numbered root directory.
-
 **Audience:** Experienced C#/.NET and JavaScript engineers who know OOP, closures, and the GoF design patterns but are new to Python's first-class functions and `@decorator` syntax.
 
 ## 1. “Decorator” means more than one thing
@@ -94,7 +92,7 @@ This example is a **function decorator**, not the GoF class-based pattern. The v
 
 ### 2.3 Important limitation of the minimal example
 
-This introductory wrapper accepts **no arguments** and returns no result. It is correct for this particular `hello()` demo, but is **not yet a general-purpose decorator**. Production wrappers typically accept `*args` and `**kwargs`, return the wrapped function's result, and use `functools.wraps` to preserve metadata such as `__name__` and `__doc__`. We will implement and test those improvements in the remaining parts of Lesson 04.
+This introductory wrapper accepts **no arguments** and returns no result. It is correct for this particular `hello()` demo, but is **not yet a general-purpose decorator**. Production wrappers typically accept `*args` and `**kwargs`, return the wrapped function's result, and use `functools.wraps` to preserve metadata such as `__name__` and `__doc__`. Sections 7–8 implement and test these improvements rather than hiding their behavior behind demo imports.
 
 The `"After"` line also does **not run if `func()` raises an unhandled exception**. If after-action cleanup must always run, use `try/finally`, as discussed in Lesson 03.
 
@@ -531,7 +529,205 @@ This section demonstrates **why the decorator syntax works**; Lesson 03 provides
 
 C# `[SomeAttribute]` generally attaches **metadata** that other infrastructure can inspect or act upon; the attribute alone does not normally replace the method's implementation. In contrast, Python's `@log_calls` *executes a callable at definition time* and can **replace the function binding with a different callable**.
 
-## 7. Quick validation and practice
+## 7. Parameterized decorators: factory, decorator, wrapper
+
+A plain decorator such as `@log_calls` receives the target function immediately: `hello = log_calls(hello)`. A **parameterized decorator** such as `@repeat(times=2)` adds another step: first create a decorator configured with `times=2`, *then* apply that decorator to the target. The key difference is **three nested functions**, each with a distinct responsibility.
+
+This is the complete, runnable `examples/parameterized_decorators.py`:
+
+ 
+
+```python
+"""A parameterized decorator: factory, decoration, and calls."""
+
+
+def repeat(times: int):
+    """Repeat a call and return the result of its final invocation."""
+    if times < 1:
+        raise ValueError("times must be >= 1")
+    print(f"factory: times={times}")
+
+    def decorator(func):
+        print(f"decorate: {func.__name__}")
+
+        def wrapper(*args, **kwargs):
+            print(f"wrapper: {times} call(s)")
+            result = None
+            for _ in range(times):
+                result = func(*args, **kwargs)
+            return result
+
+        return wrapper
+
+    return decorator
+
+
+@repeat(times=2)
+def greet(name: str, *, punctuation: str = "!") -> str:
+    print(f"body: {name}")
+    return f"Hello, {name}{punctuation}"
+
+
+if __name__ == "__main__":
+    print("main: calling greet")
+    print("result:", greet("Ada", punctuation="?"))
+```
+
+Run from `lessons/04-decorators/`:
+
+
+
+```bash
+python examples/parameterized_decorators.py
+```
+
+**Expected output:**
+
+
+
+```text
+factory: times=2
+decorate: greet
+main: calling greet
+wrapper: 2 call(s)
+body: Ada
+body: Ada
+result: Hello, Ada?
+```
+
+### 7.1 Evaluation order (not the same as call order)
+
+1. **`repeat(times=2)`** executes at **definition time**, returning `decorator`; it prints `factory: times=2`. At this point, there is no call to `greet`.
+2. Python creates the original `greet` function object and passes it to that returned `decorator`. The decorator prints `decorate: greet` and returns `wrapper`. Python binds the name `greet` to this wrapper.
+3. The `if __name__ == "__main__":` entry point runs when the file is executed as a script. It does **not** run when imported as a module.
+4. `greet("Ada", punctuation="?")` calls the **wrapper**, which invokes the captured original function **twice**, forwarding its arguments, then returns the **last invocation's result**.
+
+The decoration can also be expressed as `greet = repeat(times=2)(greet)` after an ordinary function definition. Crucially, the *factory and decorator run once per decorated definition*; the wrapper runs **each time the decorated callable is invoked**.
+
+Compare with C#: a configured C# decorator object might be instantiated with constructor options, then wrap a service; a Python decorator factory instead returns a callable to transform the function **binding** at definition time. Python's `@...` here is executable transformation syntax, **not a C# attribute**.
+
+### 7.2 New syntax: `*args`, `**kwargs`, and keyword-only parameters
+
+- In `def wrapper(*args, **kwargs):`, **`args`** is a tuple collecting the positional arguments supplied to the wrapper. A tuple is an ordered sequence, like a fixed-size read-only container; **`kwargs`** is a dictionary mapping keyword names to argument values. The names `args` and `kwargs` are conventions; the `*` and `**` prefixes carry the meaning.
+- In `func(*args, **kwargs)` the operators do the **inverse**: expand the tuple into positional arguments and the dictionary into named arguments. This is the forwarding pattern for generic wrappers; unlike a fixed C# `Func<T...>`, one wrapper can accommodate functions with different signatures.
+- `greet(name: str, *, punctuation: str = "!")` uses a **bare `*`** to make `punctuation` *keyword-only*: `greet("Ada", punctuation="?")` works, but `greet("Ada", "?")` is invalid. The `: str` and `-> str` annotations describe types without enforcing them at runtime.
+- `for _ in range(times):` repeats `times` times; `_` is a conventional name for an iteration index we intentionally do not use. `result = None` initializes a local variable with Python's null singleton, then each call replaces the value.
+- `raise ValueError(...)` rejects invalid decorator configuration **when the factory is evaluated**, not on the first decorated function call.
+
+**Contract boundaries:** This decorator intentionally invokes the original function multiple times, so it can repeat side effects. If the wrapped call raises, repetition stops and the exception propagates; no successful result is returned. It also still loses the target's name and docstring because this first version does **not** use `functools.wraps`. The next example fixes that metadata issue; neither version promises exactly-once semantics.
+
+## 8. Metadata and stacked decorators
+
+A wrapper is a *different function object*. Without intervention, tools that inspect `__name__`, `__doc__` or the callable's signature see the wrapper instead of the intended public API. Python's standard-library **`functools.wraps`** helps by copying relevant metadata and adding a `__wrapped__` reference to the function being wrapped.
+
+`from functools import wraps` imports this metadata helper; `from inspect import signature` imports a standard-library function that describes the parameters and return annotation of a callable. Both are **runtime introspection** tools, not substitutes for static type checking.
+
+This is the complete runnable `examples/metadata_and_stacking.py`:
+
+
+
+```python
+"""Metadata-preserving wrappers, stacked decorators, and execution order."""
+
+from functools import wraps
+from inspect import signature
+
+
+def trace(label: str):
+    """Wrap a function with labeled entry and exit messages."""
+    print(f"factory: {label}")
+
+    def decorator(func):
+        print(f"decorate: {label}")
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            print(f"enter: {label}")
+            try:
+                return func(*args, **kwargs)
+            finally:
+                print(f"exit: {label}")
+
+        return wrapper
+
+    return decorator
+
+
+@trace("outer")
+@trace("inner")
+def add(a: int, b: int = 1) -> int:
+    """Return the sum of a and b."""
+    print("body: add")
+    return a + b
+
+
+if __name__ == "__main__":
+    print("name:", add.__name__)
+    print("doc:", add.__doc__)
+    print("signature:", signature(add))
+    print("runtime signature:", signature(add, follow_wrapped=False))
+    print("result:", add(3, b=4))
+```
+
+Run from the lesson directory:
+
+
+
+```bash
+python examples/metadata_and_stacking.py
+```
+
+**Expected output:**
+
+
+
+```text
+factory: outer
+factory: inner
+decorate: inner
+decorate: outer
+name: add
+doc: Return the sum of a and b.
+signature: (a: int, b: int = 1) -> int
+runtime signature: (*args, **kwargs) -> int
+enter: outer
+enter: inner
+body: add
+exit: inner
+exit: outer
+result: 7
+```
+
+### 8.1 Why three different orders appear
+
+- **Decorator expressions** are evaluated **top to bottom**: `trace("outer")` returns a decorator, then `trace("inner")` returns another. This is why both `factory` messages precede the `decorate` messages.
+- **Decorator application** is **bottom to top**: first apply the inner decorator to the original `add`, then apply the outer decorator to the result. This is approximately `add = trace("outer")(trace("inner")(add))`; the name `add` is finally rebound to the outer wrapper.
+- **At call time**, the outer wrapper is entered first, which enters the inner wrapper, which calls the original body. The wrappers then exit in reverse order. This is the same nesting rule you know from C# middleware pipelines or nested `try/finally` blocks.
+
+### 8.2 `@wraps(func)`, `__wrapped__`, and the real signature
+
+`@wraps(func)` above `def wrapper` is itself a **parameterized decorator**: `wraps(func)` returns a decorator for the wrapper. Internally, `functools.wraps` uses `update_wrapper` to copy selected metadata and set `wrapper.__wrapped__ = func`. It does **not** replace the implementation or re-create the original parameter list.
+
+- `add.__name__` evaluates to `"add"`, and `add.__doc__` retains the original docstring.
+- `add.__wrapped__` refers to the **inner wrapper**, while `add.__wrapped__.__wrapped__` refers to the **original undecorated function**. Each use of `@wraps` preserves a link in that chain.
+- `inspect.signature(add)` **follows `__wrapped__` by default**, reporting `(a: int, b: int = 1) -> int` for the original callable.
+- `inspect.signature(add, follow_wrapped=False)` examines the actual outer wrapper. Its runtime parameters are `(*args, **kwargs)`, although its return annotation is copied from the original by `@wraps`. The displayed signature does **not** mean Python has changed the wrapper's runtime argument binding.
+
+To preserve static typing when writing reusable decorators, a later section can introduce `typing.ParamSpec` and `TypeVar`. These provide information to type checkers; they do not change Python's runtime call protocol.
+
+### 8.3 Exception behavior: wrapping is not suppression
+
+`trace` uses `try/finally`: both `exit` messages run even if the original function raises. The original exception then continues outward. This is like the guaranteed execution of a C# `finally` block, but **no resource ownership or automatic disposal** is implied. Unlike Lesson 03's optional context-manager exception suppression, this wrapper does **not** catch or suppress errors.
+
+### 8.4 Engineering exercises
+
+1. Predict the output when `@repeat(times=2)` changes to `@repeat(times=3)`. Distinguish decoration-time prints from call-time prints.
+2. Predict what happens when you invoke `greet("Ada", "?")`. Explain the bare `*` in its signature.
+3. Inspect `add.__wrapped__` and `add.__wrapped__.__wrapped__` and identify which wrapper or original function each represents.
+4. Reverse the order of `@trace("outer")` and `@trace("inner")`. Predict separately the factory, decoration, call-entry, and finally-exit order.
+5. Replace the body of `add` with `raise RuntimeError("boom")`. Confirm that both `finally` blocks execute and the exception is still raised.
+
+## 9. Quick validation and practice
 
 **Run the Python demonstrations (JavaScript demo is optional):**
 
@@ -539,6 +735,8 @@ C# `[SomeAttribute]` generally attaches **metadata** that other infrastructure c
 cd lessons/04-decorators
 python examples/function_decorators.py
 python examples/closures.py
+python examples/parameterized_decorators.py
+python examples/metadata_and_stacking.py
 python -m unittest discover -s tests -v
 
 # Optional, when Node.js is installed:
@@ -554,9 +752,9 @@ The Python demos and tests use the standard library only. The JavaScript example
 3. Make a second Python function `bye()` with no arguments and apply `@log_calls`. Explain why the same higher-order function can decorate both.
 4. For the C# GoF example, wrap the same `ConsoleLogger` instance with **two** decorators. Predict in which order the wrappers execute before running the code.
 
-## 8. Remaining Lesson 04 roadmap
+## 10. Production boundaries
 
-The next sections to develop are parameterized decorator factories (three nested functions and evaluation timing), deeper closure internals and runtime introspection (`__closure__`, `co_freevars`), arbitrary positional/keyword arguments (`*args` / `**kwargs`), returning the original result, `functools.wraps`, stacked decorators and evaluation order, synchronous versus asynchronous wrappers, and exercises with production concerns such as exception safety and preserving function contracts.
+These examples deliberately focus on function decoration, lexical capture, metadata, and call forwarding. Runtime introspection (e.g. `__closure__` and `__code__.co_freevars`), type-safe generic decorators (e.g. `ParamSpec`), synchronous versus asynchronous function wrappers, cancellation, and production instrumentation need dedicated treatment. In particular, wrapping an `async def` function with a synchronous `def` wrapper changes the callable's behavior; `functools.wraps` cannot fix coroutine scheduling or exception-handling mistakes.
 
 **Additional cross-language references:** [Python execution model (name binding)](https://docs.python.org/3/reference/executionmodel.html), [Python FAQ on late-bound lambdas](https://docs.python.org/3/faq/programming.html#why-do-lambdas-defined-in-a-loop-with-different-values-all-return-the-same-result), [MDN closures](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Closures), [C# lambda expressions](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/operators/lambda-expressions).
 
