@@ -798,21 +798,44 @@ Internal closed: True
 
 **C# mental model:** `Task.FromResult(value)` adapts an already available value to a `Task<T>`-returning API; `nullcontext(value)` adapts a value to a **context-manager API**. Both are adapter-like conveniences, **but `nullcontext` is not asynchronous and does not create a task**. It also does not own, acquire or dispose of the resource.
 
-In the original runnable `examples/contextlib_tools.py`, `run_optional(enabled)` uses `manager = traced_resource("optional", events) if enabled else nullcontext("direct")`. The conditional expression chooses between real context management and a no-op manager, so both paths share a **single `with` block**.
+### The complete `run_optional()` example from the demo
 
-Run both optional-resource paths from the original demo:
+The function below is the **actual implementation** from [`examples/contextlib_tools.py`](examples/contextlib_tools.py). The `traced_resource()` function was explained and implemented in Section 7.1 above; we import it here instead of repeating that definition. There is **no hidden `run_optional()` logic** in the demo:
 
 ```python
-from examples.contextlib_tools import run_optional
+from contextlib import nullcontext
+from examples.contextlib_tools import traced_resource
+
+def run_optional(enabled: bool) -> list[str]:
+    events: list[str] = []
+    # nullcontext is a no-op stand-in for an optional context manager.
+    # This avoids duplicating the same with body in an if/else branch.
+    manager = traced_resource("optional", events) if enabled else nullcontext("direct")
+    with manager as resource:
+        events.append(f"use:{resource}")
+    return events
 
 print("enabled:", run_optional(True))
 print("disabled:", run_optional(False))
 ```
 
+**Expected output:**
+
 ```text
 enabled: ['acquire:optional', 'use:resource:optional', 'release:optional']
 disabled: ['use:direct']
 ```
+
+The central line is `manager = traced_resource("optional", events) if enabled else nullcontext("direct")`. This is the same **Python conditional expression** explained in Section 5, comparable to C# `enabled ? TracedResource(...) : NoOpResource(...)`: it chooses **one of two context managers**. Its behavior becomes clearer when you follow both paths:
+
+| `enabled` | Selected manager | What `as resource` receives | What happens on exit |
+|---|---|---|---|
+| `True` | `traced_resource("optional", events)` | `"resource:optional"` (the value from `yield`) | Appends `release:optional` |
+| `False` | `nullcontext("direct")` | `"direct"` (the already available value) | No cleanup |
+
+**Execution trace:** first `run_optional(True)` adds `acquire:optional`, then the shared `with` body adds `use:resource:optional`, and finally the manager adds `release:optional`. In `run_optional(False)`, the same `with` body adds only `use:direct`: no resource was acquired, so none is released.
+
+**Why this is useful:** the body of `with manager as resource:` can be written **once** even though resource ownership differs. The function does not need two copies of the operation in an `if/else`. This demo uses strings as stand-in resources to make the event order visible; the `StringIO` example above shows the actual **caller-owned versus manager-owned** difference.
 
 ## 8. `ExitStack`: dynamically managed resources
 
