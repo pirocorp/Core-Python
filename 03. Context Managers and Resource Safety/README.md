@@ -96,6 +96,63 @@ Closed after exception: True
 Caught: simulated processing failure
 ```
 
+### How the executable file demo works
+
+The command above runs `examples/file_resources.py`. Its real `write_and_read()` and `close_after_exception()` functions are shown below so their behavior is **not hidden in the demo**. Imports and the printing code make the excerpt independently executable:
+
+```python
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+def write_and_read(text: str) -> tuple[str, bool]:
+    """Return file contents and whether the reader was closed on exit."""
+    # TemporaryDirectory is itself a context manager. It deletes its
+    # temporary directory when this with block exits, even on exceptions.
+    with TemporaryDirectory(prefix="context-lesson-") as directory:
+        path = Path(directory) / "example.txt"
+
+        # This matches the first 'with open(...) as file' teaching example.
+        # open(...) opens the file BEFORE the with protocol calls __enter__().
+        # File.__enter__ returns the file object for the 'as writer' target.
+        # The matching __exit__ closes it when the block finishes.
+        with open(path, "w", encoding="utf-8") as writer:
+            writer.write(text)
+
+        with open(path, "r", encoding="utf-8") as reader:
+            result = reader.read()
+            # The file stays open inside the with body.
+
+        # __exit__ already ran, so the file has been closed.
+        return result, reader.closed
+
+
+def close_after_exception() -> tuple[bool, str]:
+    """Prove that a file closes even if the with body raises an exception."""
+    with TemporaryDirectory(prefix="context-lesson-") as directory:
+        path = Path(directory) / "example.txt"
+        path.write_text("contents", encoding="utf-8")
+
+        try:
+            with open(path, "r", encoding="utf-8") as reader:
+                raise RuntimeError("simulated processing failure")
+        except RuntimeError as exc:
+            # Unlike C# using declarations, Python's 'with' variable is still
+            # bound after the block. The file object, however, is closed.
+            return reader.closed, str(exc)
+
+text, closed = write_and_read("Python context managers")
+print(f"Read: {text}")
+print(f"File closed: {closed}")
+
+closed_on_error, message = close_after_exception()
+print(f"Closed after exception: {closed_on_error}")
+print(f"Caught: {message}")
+```
+
+**Expected output** is exactly the four lines displayed above. In `write_and_read()`, the `with TemporaryDirectory()` block provides a disposable, isolated directory. The nested `with open(..., "w")` writes the file, and `with open(..., "r")` reads it. The function returns a **tuple** containing the file contents and `reader.closed`. In `close_after_exception()`, `raise RuntimeError(...)` simulates a failure while the file is open. The `with` still closes the file **before** the `except RuntimeError as exc` handler returns its status and `str(exc)` message.
+
+**Python syntax details:** `return result, reader.closed` returns a two-element tuple, which `text, closed = ...` unpacks (like a C# tuple deconstruction). `reader.closed` is a Boolean property and `str(exc)` produces an exception's printable message (similar in purpose to `exc.Message` in C#).
+
 ### Creating test data without external files
 
 The example uses `tempfile.TemporaryDirectory` to create and automatically remove a directory. Here is the central logic in a **standalone**, copyable form:
