@@ -6,17 +6,18 @@
 
 ## 1. “Decorator” means more than one thing
 
-The word **decorator** is used in two related but different programming traditions. The specific functional-programming term you may be looking for is **higher-order function (HOF)**.
+The word **decorator** is used in related but different programming traditions. In JavaScript and functional programming, **closure** describes captured lexical state, while **higher-order function (HOF)** describes a function that accepts or returns functions. A Python decorator often uses both mechanisms, but they are not interchangeable terms.
 
 | Term | Precise meaning | What is wrapped? |
 |---|---|---|
 | **Higher-order function (HOF)** | Any function that **accepts a function as an argument, returns a function, or both** | No wrapping is required: e.g. `map()` is a HOF |
+| **Closure** | A function **and its captured lexical environment**; can retain bindings after the defining call returns | The captured environment, not a decorated target |
 | **Function wrapper** | A function that invokes another function, optionally adding behavior before/after the invocation | Another callable |
 | **Python function decorator** | A callable used to **transform or replace a function definition**, typically by returning a wrapper; written with `@name` | A function object |
 | **GoF Decorator Pattern** | A **structural** design pattern that gives an object added behavior by wrapping it with another object implementing a compatible interface | An **object instance**, not inherently a class definition |
 | **Function composition** | Combining functions so one function's output feeds the next | No specific `@` syntax or wrapping requirement |
 
-These terms overlap, but are **not synonyms**: not every HOF is a decorator, and function composition is not the same thing as the GoF Decorator Pattern.
+These terms overlap, but are **not synonyms**: closures are a lexical-scoping mechanism, not every HOF creates a closure or is a decorator, and function composition is not the same thing as the GoF Decorator Pattern.
 
 **C# mental model:** In C#, a GoF decorator is commonly a class implementing the same interface as the wrapped object, such as an `ILogger` decorator. In Python, ordinary **functions are first-class objects**: they can be passed, returned, stored in variables, and wrapped without creating an extra class. Consequently, a Python *function decorator* often uses a HOF plus a closure. Both approaches can add behavior, but their APIs and mechanics differ.
 
@@ -494,7 +495,7 @@ The Python demos and tests use the standard library only. The JavaScript example
 
 ## 8. Remaining Lesson 04 roadmap
 
-The next sections to develop are parameterized decorator factories (three nested functions and evaluation timing), more advanced closure uses, arbitrary positional/keyword arguments (`*args` / `**kwargs`), returning the original result, `functools.wraps`, stacked decorators and evaluation order, synchronous versus asynchronous wrappers, and exercises with production concerns such as exception safety and preserving function contracts.
+The next sections to develop are parameterized decorator factories (three nested functions and evaluation timing), deeper closure internals and runtime introspection (`__closure__`, `co_freevars`), arbitrary positional/keyword arguments (`*args` / `**kwargs`), returning the original result, `functools.wraps`, stacked decorators and evaluation order, synchronous versus asynchronous wrappers, and exercises with production concerns such as exception safety and preserving function contracts.
 
 **Additional cross-language references:** [Python execution model (name binding)](https://docs.python.org/3/reference/executionmodel.html), [Python FAQ on late-bound lambdas](https://docs.python.org/3/faq/programming.html#why-do-lambdas-defined-in-a-loop-with-different-values-all-return-the-same-result), [MDN closures](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Closures), [C# lambda expressions](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/operators/lambda-expressions).
 
