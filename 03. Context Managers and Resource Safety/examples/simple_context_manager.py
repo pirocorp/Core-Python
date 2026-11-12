@@ -1,8 +1,4 @@
-"""The minimal context-manager example: enter, body, and exit order.
-
-This deliberately starts without type annotations or extra dependencies.
-The more advanced example in custom_manager.py adds exception handling.
-"""
+"""Show the context-manager protocol: enter, execute body, then exit."""
 
 
 class MyContextManager:
