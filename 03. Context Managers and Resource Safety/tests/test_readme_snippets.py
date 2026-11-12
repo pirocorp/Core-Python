@@ -148,6 +148,21 @@ class ReadmeSnippetTests(unittest.TestCase):
                     f"README example no longer matches examples/{filename}",
                 )
 
+    def test_exitstack_intro_has_correct_lifo_output(self) -> None:
+        """The copyable Database/Cache illustration must match its output."""
+        markdown = README.read_text(encoding="utf-8")
+        start = markdown.index("### 8.1 Start small: Database and Cache")
+        end = markdown.index("### 8.2 Start from the actual", start)
+        section = markdown[start:end]
+        code_match = re.search(r"```python\n([\s\S]*?)```", section)
+        output_match = re.search(r"```text\n([\s\S]*?)```", section)
+        self.assertIsNotNone(code_match)
+        self.assertIsNotNone(output_match)
+        stdout = StringIO()
+        with redirect_stdout(stdout):
+            exec(compile(code_match.group(1), "lesson03:ExitStack-intro", "exec"), {})
+        self.assertEqual(stdout.getvalue().strip(), output_match.group(1).strip())
+
     def test_documented_python_snippets_are_runnable_independently(self) -> None:
         markdown = README.read_text(encoding="utf-8")
         snippets = list(

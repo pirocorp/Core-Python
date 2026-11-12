@@ -18,6 +18,8 @@ The **root of this repository** contains each developed course lesson as its own
 
 - Assume professional experience with software engineering, object-oriented design, testing, and concurrent systems (C#/.NET comparisons may be used).
 - Explain **Python-specific semantics and implementation trade-offs**, not generic definitions of classes, loops, or inheritance.
+- **Explain imports when first introduced:** say what each unfamiliar standard-library or third-party name provides. For familiar, language-agnostic concepts (such as a list, queue, iterator, or basic utility function), **one short identification is enough**. For Python-specific concepts (such as context managers, decorators, `asyncio` constructs, or an unusual API contract), add a **concise why/when/how explanation** and a runnable example where needed. Avoid repeating the explanation in every later snippet; refer to the earlier section instead.
+- Distinguish imported **library names** from **our own helpers**: show local helper implementations in the lesson before relying on their behavior, with copyable imports and expected output.
 - Develop self-contained lessons from the supplied working material, retaining **only learner-facing, verified code and explanations** in the repository.
 - Keep preparatory/source snippets outside the repository. Published lessons must be self-contained and include corrected executable examples, tests, and documented behavior.
 - As we review code, incorporate useful clarifications directly into the relevant explanation or example; avoid repetitive Q&A transcripts and editorial notes.
