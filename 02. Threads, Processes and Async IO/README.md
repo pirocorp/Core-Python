@@ -55,7 +55,7 @@ python examples/asyncio_blocking.py --requests 3 --delay 0.2
 python -m unittest discover -s tests -v
 ```
 
-Expected results: all strategies in a comparison compute **identical outputs**. There are **10 deterministic tests** with no assertions about elapsed times. Runtime measurements vary with processor load, container CPU limits, OS scheduling, GIL mode, process startup and Python version.
+Expected results: all strategies in a comparison compute **identical outputs**. Functional and README self-containment tests run without assertions about elapsed times. Runtime measurements vary with processor load, container CPU limits, OS scheduling, GIL mode, process startup and Python version.
 
 **Important:** the I/O demos use `time.sleep` / `asyncio.sleep` to model waiting. They do **not** perform real network, disk or database operations. The CPU demo intentionally uses a plain Python loop; it does not represent NumPy or native code that releases the GIL.
 
@@ -466,6 +466,65 @@ In the standard GIL-enabled CPython, separate processes can run pure-Python CPU 
 
 [`examples/asyncio_io.py`](examples/asyncio_io.py) contrasts **sequential awaits**, `asyncio.gather()`, and structured concurrency using `asyncio.TaskGroup`.
 
+
+### 6.1 Three distinct things: coroutine object, Task, and returned value
+
+**Calling an `async def` function does not automatically create an `asyncio.Task`.** It creates a **coroutine object**: an awaitable representing execution that has not started yet. This is different from C#: calling an ordinary `async Task<string>` method starts executing its body immediately (normally until its first incomplete `await`) and returns a `Task<string>`.
+
+| Python expression | What you receive | Is it an `asyncio.Task`? |
+|---|---|---|
+| `coroutine = get_data()` | A **coroutine object**; its body has not run yet | **No** |
+| `result = await get_data()` | The **returned value** (`"Hello"`, a `str`) after running the coroutine | **No** |
+| `task = asyncio.create_task(get_data())` | A **Task object** that schedules and tracks the coroutine on the running event loop | **Yes** |
+| `result = await task` | The **returned value** of the completed Task (`"Hello"`) | **No** |
+
+Here is a complete, runnable demonstration using `inspect.iscoroutine()` (a standard-library check for coroutine objects) and `isinstance(..., asyncio.Task)` (the Python equivalent of checking an object's runtime type):
+
+```python
+import asyncio
+import inspect
+
+async def get_data() -> str:
+    await asyncio.sleep(0)
+    return "Hello"
+
+async def main() -> None:
+    coroutine = get_data()  # Creates a coroutine; does NOT start its body.
+    print("Coroutine object:", inspect.iscoroutine(coroutine))
+    print("Already a Task:", isinstance(coroutine, asyncio.Task))
+    print("Await existing coroutine:", await coroutine)
+
+    result = await get_data()  # Runs it directly; receives the str.
+    print("Direct await result:", result)
+    print("Direct await type:", type(result).__name__)
+
+    task = asyncio.create_task(get_data())  # Schedules a separate Task.
+    print("Created Task:", isinstance(task, asyncio.Task))
+    print("Await Task result:", await task)
+
+asyncio.run(main())
+```
+
+**Expected output:**
+
+```text
+Coroutine object: True
+Already a Task: False
+Await existing coroutine: Hello
+Direct await result: Hello
+Direct await type: str
+Created Task: True
+Await Task result: Hello
+```
+
+**Why `await get_data()` works without creating a separate Task:** `await` drives the coroutine as part of the **currently executing async task**; Python does **not** need to wrap *this call* in a new `asyncio.Task`. The value returned by `await` is what `get_data()` returns, not the coroutine or Task object. A coroutine object can normally be awaited **only once**; the example awaits `coroutine` so that it is consumed rather than abandoned.
+
+**When to create a Task:** use `asyncio.create_task(get_data())` when you need the operation **scheduled independently** of the next line, for example so multiple I/O operations overlap, you can inspect `task.done()`, request `task.cancel()`, or await its result later. Call `create_task()` from a running event loop (usually inside `async def`). **Do not wrap every coroutine in a Task by default**; `await get_data()` is correct when you need its result before continuing.
+
+**Other ways Tasks are created:** `asyncio.TaskGroup.create_task()` explicitly creates Tasks; `asyncio.gather(coroutine1, coroutine2)` automatically schedules coroutine arguments as Tasks. `asyncio.run(main())` is a top-level event-loop runner, not a reason to manually create a Task for each nested `await`.
+
+**C# mental model:** Python `asyncio.Task` resembles C# `Task<T>` as a handle for tracking and awaiting an operation. But Python's `async def` call returns a **coroutine first**, whereas a C# `async Task<T>` call normally returns an already-started Task. Importantly, `asyncio.create_task()` schedules work on the event loop; it is **not C# `Task.Run()`** and does not automatically use a thread-pool thread.
+
 **Import:** `asyncio` is Python's standard-library framework for coroutine-based asynchronous programming, built around an **event loop**. It provides scheduling (`create_task`), non-blocking waiting (`asyncio.sleep`), grouping (`gather`, `TaskGroup`) and the application entry point `asyncio.run`. It serves purposes familiar from C# `async`/`await`, but calling a Python coroutine does **not** start its body immediately; later examples explain how scheduling differs.
 
 ```python
@@ -604,7 +663,7 @@ These C# `async Task<string>` methods normally begin executing when called, whil
 
 **C# comparison:** Python `async`/`await` looks familiar, but `asyncio` is an event-loop-driven concurrency API. A Python coroutine or `Task` is not automatically a thread-pool operation; `asyncio.sleep()` yields while `time.sleep()` blocks the current thread.
 
-### 6.1 Complete `asyncio` strategies from the runnable demo
+### 6.2 Complete `asyncio` strategies from the runnable demo
 
 The simplified examples above teach syntax, but the real [`asyncio_io.py`](examples/asyncio_io.py) implements **three distinct functions**. All of the important source is reproduced here. The shared `validate()` function, imported from that demo, checks the request count and delay.
 

@@ -1409,6 +1409,8 @@ If the second entry fails, `AsyncExitStack` still releases earlier successful en
 
 The point of the cancellation demonstration is **not merely calling `task.cancel()`**; it is proving that the task **already owns the resource** before we cancel it. Otherwise a test may pass accidentally without exercising cleanup.
 
+**Coroutine versus Task (review from [Lesson 02, Section 6.1](../02.%20Threads,%20Processes%20and%20Async%20IO/README.md#61-three-distinct-things-coroutine-object-task-and-returned-value)):** calling `operation()` produces a **coroutine object**, not a Task, and does not start its body. `asyncio.create_task(operation())` **schedules** that coroutine on the event loop and returns a real `asyncio.Task` handle. We need that separate scheduled Task here so `run_cancellation()` can independently wait for `entered`, then call `task.cancel()` and `await task` to observe cleanup. A direct `await operation()` would instead wait inside the never-ending event and prevent the parent from reaching the cancellation request. `asyncio.create_task()` is **not** C# `Task.Run()` and does not automatically create another thread.
+
 This is the actual `run_cancellation()` source from the demo. It reuses the `async_resource()` implementation you read in Section 9.2:
 
 ```python

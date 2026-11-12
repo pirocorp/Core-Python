@@ -59,6 +59,26 @@ class DocumentationTests(unittest.TestCase):
                         f"README.md:{line}:\n{result.stdout}\n{result.stderr}",
                     )
 
+    def test_coroutine_task_example_output_matches_readme(self) -> None:
+        """Prevent confusion about Coroutine, Task and returned value."""
+        markdown = README.read_text(encoding="utf-8")
+        start = markdown.index("### 6.1 Three distinct things:")
+        end = markdown.index("### 6.2 Complete", start)
+        section = markdown[start:end]
+        code = re.search(r"^`{3}python\n([\s\S]*?)^`{3}", section, re.MULTILINE)
+        expected = re.search(r"^`{3}text\n([\s\S]*?)^`{3}", section, re.MULTILINE)
+        self.assertIsNotNone(code)
+        self.assertIsNotNone(expected)
+        result = subprocess.run(
+            [sys.executable, "-c", code.group(1)],
+            cwd=LESSON,
+            text=True,
+            capture_output=True,
+            timeout=15,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), expected.group(1).strip())
+
     def test_demo_implementations_embedded_verbatim(self) -> None:
         markdown = README.read_text(encoding="utf-8")
         cases = [
