@@ -529,7 +529,7 @@ This is the same LIFO resource-unwinding principle used by nested C# `using` blo
 
 ## 7. `@contextmanager`, generators and optional resources
 
-The file [`examples/contextlib_tools.py`](examples/contextlib_tools.py) creates a context manager without defining `__enter__()` and `__exit__()` by hand. Instead, it uses the standard-library `contextlib.contextmanager` decorator.
+The file [`examples/contextlib_tools.py`](examples/contextlib_tools.py) creates a context manager without writing `__enter__()` and `__exit__()` by hand. For this lesson, focus on **when the resource is acquired, yielded and released**.
 
 ### 7.1 Read the generator-based manager
 
@@ -539,6 +539,7 @@ This is the **actual `traced_resource()` implementation** from the demo:
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+# @contextmanager is a decorator; see Lesson 04 for decorator syntax.
 @contextmanager
 def traced_resource(name: str, events: list[str]) -> Iterator[str]:
     """A generator-based context manager must yield exactly one resource."""
@@ -564,15 +565,15 @@ print(events)
 ['acquire:cache', 'use:resource:cache', 'release:cache']
 ```
 
+> **Decorator note:** `@contextmanager` is a Python function **decorator**. You only need to know here that it makes this `yield`-based function usable with `with`. The `@` syntax, higher-order functions, closures and how decorators transform functions are taught in [Lesson 04 — Decorators, Closures and Cross-Cutting Concerns](../lessons/04-decorators/README.md#6-how-does-contextmanager-from-lesson-03-fit-in).
+
 Read the new syntax in the order Python executes it:
 
-1. `@contextmanager` is a **decorator** (the `@` syntax). It wraps a generator function in an object that provides the `__enter__()` / `__exit__()` protocol automatically. **You do not implement either special method yourself.** You will implement decorators directly in Lesson 04.
+1. `@contextmanager` lets the function participate in the `with` protocol without manually defining `__enter__()` and `__exit__()`. Its **decorator implementation** belongs to Lesson 04.
 2. `def traced_resource(name: str, events: list[str]) -> Iterator[str]:` declares the generator function. `Iterator[str]` is a **type hint** for the values it yields. As in the previous class, annotations are not automatically enforced at runtime.
 3. `events.append(f"acquire:{name}")` runs when entering the `with` block. The body before `yield` is **setup**.
 4. `yield f"resource:{name}"` is **not a normal `return`**. It pauses the generator and sends the string to the `as resource` variable in the outer `with` block. The caller now executes its body.
 5. On exit, the generator resumes at the suspended `yield`. The `finally:` block appends the release event, including when the caller's body raises.
-
-**What does the `@` actually do?** The decoration `@contextmanager` above `def traced_resource(...):` is shorthand for first defining that generator function and then assigning `traced_resource = contextmanager(traced_resource)`. The decorator transforms the **function**, but does **not** acquire resources at import time. Its setup code runs only when the resulting manager is **entered** by `with`. The `yield` provides the `as` value, and the code after `yield` handles the exit. Merely returning a generator without the decorator would **not** make it usable with `with`.
 
 **C# comparison:** imagine a helper that performs setup, invokes the user action, and runs `Dispose()` in `finally`. The Python `yield` marks the handoff to the caller's `with` body. Unlike a normal `return`, the generator continues after the body completes.
 
@@ -653,7 +654,7 @@ with ExitStack() as stack:
     events.append(f"work:{','.join(acquired)}")
 ```
 
-Here `acquire()` is a generator-based context manager **defined in `examples/exit_stack.py`**, not a built-in Python function. It raises `RuntimeError` when `fail=True`. The surrounding function catches that failure with `except RuntimeError as exc:` *after* the entered resources are unwound.
+Here `acquire()` is a generator-based context manager **defined in `examples/exit_stack.py`**, not a built-in Python function. Its `@contextmanager` decorator is the same one introduced in Section 7 (see Lesson 04 for decorator mechanics). It raises `RuntimeError` when `fail=True`. The surrounding function catches that failure with `except RuntimeError as exc:` *after* the entered resources are unwound.
 
 ### 8.2 New Python syntax in the demo
 
@@ -736,6 +737,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+# @asynccontextmanager is a decorator; see Lesson 04 for decorator syntax.
 @asynccontextmanager
 async def async_resource(name: str, events: list[str]) -> AsyncIterator[str]:
     """An async generator-based manager; yield exactly one value."""
@@ -764,9 +766,11 @@ asyncio.run(main())
 ['open:cache', 'use:cache', 'close:cache']
 ```
 
+> **Decorator note:** `@asynccontextmanager` is the **asynchronous counterpart** of `@contextmanager`. Here it enables `async with` and awaited cleanup; the decorator syntax and function transformation are explained in [Lesson 04](../lessons/04-decorators/README.md#6-how-does-contextmanager-from-lesson-03-fit-in).
+
 This combines the concepts from `@contextmanager` (Section 7) with `async def` and `await`:
 
-- `@asynccontextmanager` turns an **async generator function** into an object usable by `async with`.
+- `@asynccontextmanager` allows the async generator to be used by `async with`; how `@` works is covered in Lesson 04.
 - `AsyncIterator[str]` is the return **type hint** for the async generator's yielded values. `yield name` exposes the handle to the caller.
 - `await asyncio.sleep(0)` stands in for real asynchronous open/close operations; it is deliberately **not** a network call.
 - `try/finally` ensures that the `close:cache` event is recorded on normal exit and when the body throws. The `await` in cleanup is part of leaving the `async with` block.
