@@ -49,6 +49,7 @@ string contents = reader.ReadToEnd();
 ├── README.md
 ├── examples/
 │   ├── file_resources.py
+│   ├── simple_context_manager.py
 │   ├── custom_manager.py
 │   ├── contextlib_tools.py
 │   ├── exit_stack.py
@@ -61,6 +62,7 @@ string contents = reader.ReadToEnd();
 python --version
 
 python examples/file_resources.py
+python examples/simple_context_manager.py
 python examples/custom_manager.py
 python examples/contextlib_tools.py
 python examples/exit_stack.py
@@ -70,7 +72,7 @@ python -m compileall -q examples tests
 python -m unittest discover -s tests -v
 ```
 
-**Expected validation:** all **21 deterministic unit tests** pass. No elapsed-time assertions, network calls, additional dependencies, or files left in the repository. The file example uses `tempfile.TemporaryDirectory`, which deletes its own temporary data.
+**Expected validation:** all **23 deterministic unit tests** pass. No elapsed-time assertions, network calls, additional dependencies, or files left in the repository. The file example uses `tempfile.TemporaryDirectory`, which deletes its own temporary data.
 
 On systems where the Python executable is called `python3` or `py -3`, substitute that launcher consistently.
 
@@ -133,48 +135,50 @@ This **simplified sketch is not a fully equivalent implementation of `with`**: i
 
 ## 4. Implement `__enter__` and `__exit__`
 
-See [`examples/custom_manager.py`](examples/custom_manager.py). The protocol requires **methods** with these names; ordinary context managers do **not** need to inherit from a common base class.
-
-A small version of the example:
+Start with the deliberately minimal, runnable [`examples/simple_context_manager.py`](examples/simple_context_manager.py). There are no type annotations, event logs, or exception-suppression decisions yet. First learn the three steps: **enter the context, execute the body, exit the context**.
 
 ```python
-from types import TracebackType
-
 class MyContextManager:
-    def __enter__(self) -> str:
-        print("acquire")
-        return "connection-handle"
+    def __enter__(self):
+        print("Entering the context")
+        return self
 
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        exc_traceback: TracebackType | None,
-    ) -> bool:
-        print("release")
-        return False  # Do not suppress an exception.
+    def __exit__(self, exc_type, exc_value, traceback):
+        print("Exiting the context")
 
-with MyContextManager() as resource:
-    print("use:", resource)
+with MyContextManager() as cm:
+    print("Inside the context")
 ```
 
 **Expected output:**
 
 ```text
-acquire
-use: connection-handle
-release
+Entering the context
+Inside the context
+Exiting the context
 ```
 
-### Syntax and contract, line by line
+### Syntax note — what does each line do?
 
-- `class MyContextManager:` defines a class; unlike an interface implementation in C#, the two special methods are enough for Python's context-manager protocol. `contextlib.AbstractContextManager` exists if a reusable abstract base class is desirable, but inheritance is **not required**.
-- `def __enter__(self) -> str:` defines an instance method. `self` refers to the object (similar to C# `this`). `-> str` is a **return type hint**, not runtime enforcement. `__enter__` may return `self` or another value.
-- `def __exit__(self, exc_type, exc_value, exc_traceback) -> bool:` runs on leaving the block. The three values describe a pending exception, if any.
-- `type[BaseException] | None` is a type hint meaning **an exception class or `None`**. The `|` union notation is available in Python 3.10+. `BaseException` is the broad root of the exception hierarchy, including cancellation and process-exit signals.
-- `TracebackType | None` is a type hint for the traceback object or `None`. You do not need to inspect it to perform ordinary cleanup.
-- `return False` means: **if an exception is pending, let it propagate**. Returning `None` has the same non-suppressing effect.
-- On a **normal** exit, the three exception arguments are `None` and the `__exit__` return value is **ignored**.
+- `class MyContextManager:` creates a class. Python recognizes it as a context manager because it defines the required protocol methods; it does **not** have to inherit from an interface.
+- `def __enter__(self):` defines the method called when entering `with`. `self` means the current instance, broadly like C# `this`. The two leading and trailing underscores mark a **special method**.
+- `return self` sends the same instance back to the caller. Therefore, in `with MyContextManager() as cm:`, the variable `cm` references the object returned by `__enter__()`. **`as cm` is not a new thread, a special resource allocation, or a new variable scope.**
+- `def __exit__(self, exc_type, exc_value, traceback):` defines the method Python invokes when leaving the block. On normal exit, the three exception arguments are `None`. If the body raises, Python passes the exception class, exception instance, and traceback.
+- The `__exit__` method has **no explicit `return`**, so it implicitly returns `None`. That means **it does not suppress exceptions**; the original exception still propagates after cleanup.
+- `with MyContextManager() as cm:` constructs a manager and calls `__enter__`. The indented `print` is the managed body; after that body completes, Python calls `__exit__`.
+
+**Important:** this is intentionally a **lifecycle demonstration**. It prints messages but does not actually open or close a resource. For real resource cleanup, implement meaningful acquisition in `__enter__` and release in `__exit__`.
+
+**C# analogy:** the lifecycle resembles entering a C# `using` scope, executing the body, and running `Dispose()` when leaving it. Unlike `using`, Python passes exception information to `__exit__`, and a *truthy* return value could suppress an exception.
+
+### Moving from the minimal example to production code
+
+[`examples/custom_manager.py`](examples/custom_manager.py) expands the same `MyContextManager` idea with an event log, return type hints, nested contexts, failure paths, and **selective exception suppression**. The signature is annotated as `__exit__(self, exc_type: type[BaseException] | None, exc_value: BaseException | None, exc_traceback: TracebackType | None) -> bool`.
+
+- `-> str` / `-> bool` are **return type hints**, not runtime enforcement; the simple example omits hints so the protocol is easier to see.
+- `type[BaseException] | None` means an exception class or `None`, and `TracebackType | None` means traceback data or `None`.
+- On normal exit, the exception arguments are all `None`, and Python ignores the return value of `__exit__`.
+- Returning `False` or `None` allows pending exceptions to propagate; returning `True` deliberately suppresses one.
 
 ### The exact lifecycle
 
@@ -481,6 +485,14 @@ Read: Python context managers
 File closed: True
 Closed after exception: True
 Caught: simulated processing failure
+```
+
+**`python examples/simple_context_manager.py`**
+
+```text
+Entering the context
+Inside the context
+Exiting the context
 ```
 
 **`python examples/custom_manager.py`**
