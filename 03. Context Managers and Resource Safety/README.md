@@ -1174,11 +1174,21 @@ This combines the concepts from `@contextmanager` (Section 7) with `async def` a
 
 ### 9.3 `AsyncExitStack`: dynamic async resources
 
-`AsyncExitStack` is the asynchronous counterpart of `ExitStack`. The original `run_async_stack()` function uses `await stack.enter_async_context(async_resource(name, events))` to enter and register each manager. Its exit order is still **LIFO**.
+`AsyncExitStack` is the asynchronous counterpart of `ExitStack`. To understand the next output, first read the **real `run_async_stack()` implementation** from `examples/async_managers.py`. It uses `async_resource()`, already implemented and explained in Section 9.2:
 
 ```python
 import asyncio
-from examples.async_managers import run_async_stack
+from contextlib import AsyncExitStack
+from examples.async_managers import async_resource
+
+async def run_async_stack() -> list[str]:
+    events: list[str] = []
+    async with AsyncExitStack() as stack:
+        for name in ("db", "cache"):
+            resource = await stack.enter_async_context(async_resource(name, events))
+            events.append(f"registered:{resource}")
+        events.append("work")
+    return events
 
 print(asyncio.run(run_async_stack()))
 ```
@@ -1189,32 +1199,93 @@ print(asyncio.run(run_async_stack()))
 ['open:db', 'registered:db', 'open:cache', 'registered:cache', 'work', 'close:cache', 'close:db']
 ```
 
-The `registered:...` events confirm that each call to `enter_async_context` succeeded. Compare the order: enter `db`, enter `cache`, then close `cache`, then close `db`.
+**Step by step:**
+
+1. `async with AsyncExitStack() as stack:` enters a stack that will manage all successfully entered async resources.
+2. `for name in ("db", "cache"):` loops over two names. The tuple literal establishes the order; the actual set of names could instead come from runtime configuration.
+3. `await stack.enter_async_context(async_resource(name, events))` creates the appropriate manager, **awaits its entry**, and registers its awaited exit. It returns the string yielded by `async_resource()`.
+4. `events.append(f"registered:{resource}")` confirms the entry finished. After both resources are ready, `events.append("work")` records that the application can proceed.
+5. Exiting the stack invokes **async cleanup in reverse order**: `close:cache` happens before `close:db`, just as LIFO disposal works in a stack of C# `IAsyncDisposable` instances.
+
+If the second entry fails, `AsyncExitStack` still releases earlier successful entries. The manager whose own entry fails is responsible for any partial work performed before that failure.
 
 ### 9.4 `asyncio.Task` cancellation and resource safety
 
-In `run_cancellation()`, the demo creates a task that holds a `stream` resource and waits for an event that never becomes set. The caller then cancels the task after confirming entry. Run the example:
+The point of the cancellation demonstration is **not merely calling `task.cancel()`**; it is proving that the task **already owns the resource** before we cancel it. Otherwise a test may pass accidentally without exercising cleanup.
+
+This is the actual `run_cancellation()` source from the demo. It reuses the `async_resource()` implementation you read in Section 9.2:
 
 ```python
 import asyncio
-from examples.async_managers import run_cancellation
+from examples.async_managers import async_resource
+
+async def run_cancellation() -> list[str]:
+    """Cancel a task while it owns a resource; awaited finally still runs."""
+    events: list[str] = []
+    entered = asyncio.Event()
+    never_complete = asyncio.Event()
+
+    async def operation() -> None:
+        async with async_resource("stream", events):
+            entered.set()
+            await never_complete.wait()
+
+    task = asyncio.create_task(operation())
+    await entered.wait()  # Ensure resource ownership before cancellation.
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        events.append("caught:CancelledError")
+    return events
 
 print(asyncio.run(run_cancellation()))
 ```
+
+**Expected output:**
 
 ```text
 ['open:stream', 'close:stream', 'caught:CancelledError']
 ```
 
-Follow the relevant Python syntax:
+The exact control flow is:
 
-1. `entered = asyncio.Event()` creates a coordination event (**similar in purpose** to a completion signal in .NET).
-2. `task = asyncio.create_task(operation())` schedules the coroutine to run as a Task, comparable to running asynchronous work in .NET, though the scheduling models differ.
-3. `await entered.wait()` ensures the resource has been **entered** before requesting cancellation. This avoids tests depending on arbitrary sleep durations.
-4. `task.cancel()` requests cancellation, which causes an `asyncio.CancelledError` to be raised at a suspension point inside the task.
-5. Python unwinds `async with` and **awaits cleanup**; only afterward does the waiting caller handle `except asyncio.CancelledError:`.
+1. `entered = asyncio.Event()` is a coordination signal; `never_complete = asyncio.Event()` remains unset to keep the task inside its resource scope.
+2. The **nested** `async def operation()` enters `async with async_resource("stream", events)`. It sets `entered` only **after** acquisition and then suspends at `await never_complete.wait()`.
+3. `asyncio.create_task(operation())` schedules the coroutine. `await entered.wait()` establishes that acquisition has completed before the caller sends cancellation.
+4. `task.cancel()` requests cancellation. The pending `await never_complete.wait()` raises `asyncio.CancelledError` inside the task, unwinding its `async with` block.
+5. `async_resource` executes its awaited `finally` and appends `close:stream`. Only after cleanup does `await task` raise `CancelledError` to the waiting caller, which appends `caught:CancelledError`.
 
-**Important difference from ordinary exceptions:** `asyncio.CancelledError` inherits from `BaseException`, not `Exception`, so a generic `except Exception:` does **not** catch task cancellation. The async cleanup shown here is not an absolute guarantee against hard process termination, repeated cancellation, or cleanup failures.
+Unlike ordinary exceptions, `asyncio.CancelledError` inherits from `BaseException`, not `Exception`; a generic `except Exception:` will therefore not catch cancellation. This pattern is not an absolute guarantee against hard process termination, repeated cancellation, or cleanup failures.
+
+### 9.5 Normal exception propagation through `async with`
+
+Cancellation is not the only failure path. The demo also contains **`run_async_error()`**, which proves that an ordinary `ValueError` raised in an async resource scope is propagated *after cleanup*:
+
+```python
+import asyncio
+from examples.async_managers import async_resource
+
+async def run_async_error() -> list[str]:
+    events: list[str] = []
+    try:
+        async with async_resource("db", events):
+            events.append("body:raise")
+            raise ValueError("operation failed")
+    except ValueError:
+        events.append("caught:ValueError")
+    return events
+
+print(asyncio.run(run_async_error()))
+```
+
+**Expected output:**
+
+```text
+['open:db', 'body:raise', 'close:db', 'caught:ValueError']
+```
+
+`raise ValueError("operation failed")` interrupts the `async with` body. The `finally` inside `async_resource()` awaits cleanup, records `close:db`, and then the outer `except ValueError:` catches the propagated exception. **The handler runs after cleanup**, not before.
 
 ## 10. C#/.NET comparison: capabilities and limits
 
