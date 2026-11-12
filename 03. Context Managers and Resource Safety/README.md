@@ -565,7 +565,7 @@ print(events)
 ['acquire:cache', 'use:resource:cache', 'release:cache']
 ```
 
-> **Decorator note:** `@contextmanager` is a Python function **decorator**. You only need to know here that it makes this `yield`-based function usable with `with`. The `@` syntax, higher-order functions, closures and how decorators transform functions are taught in [Lesson 04 — Decorators, Closures and Cross-Cutting Concerns](../lessons/04-decorators/README.md#6-how-does-contextmanager-from-lesson-03-fit-in).
+> **Decorator note:** `@contextmanager` is a Python function **decorator**. You only need to know here that it makes this `yield`-based function usable with `with`. The `@` syntax, higher-order functions, closures and how decorators transform functions are taught in [Lesson 04 — Decorators, Closures and Cross-Cutting Concerns](../lessons/04-decorators/README.md).
 
 Read the new syntax in the order Python executes it:
 
@@ -766,7 +766,7 @@ asyncio.run(main())
 ['open:cache', 'use:cache', 'close:cache']
 ```
 
-> **Decorator note:** `@asynccontextmanager` is the **asynchronous counterpart** of `@contextmanager`. Here it enables `async with` and awaited cleanup; the decorator syntax and function transformation are explained in [Lesson 04](../lessons/04-decorators/README.md#6-how-does-contextmanager-from-lesson-03-fit-in).
+> **Decorator note:** `@asynccontextmanager` is the **asynchronous counterpart** of `@contextmanager`. Here it enables `async with` and awaited cleanup; the decorator syntax and function transformation are explained in [Lesson 04](../lessons/04-decorators/README.md).
 
 This combines the concepts from `@contextmanager` (Section 7) with `async def` and `await`:
 
