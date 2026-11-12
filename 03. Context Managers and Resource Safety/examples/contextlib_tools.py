@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from contextlib import contextmanager, nullcontext, suppress
 from collections.abc import Iterator
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 
 # @contextmanager is a decorator: it makes this yield-based function usable
@@ -33,12 +35,17 @@ def run_traced(fail: bool = False) -> list[str]:
 
 def run_suppress() -> list[str]:
     events: list[str] = []
-    # Only FileNotFoundError is deliberately ignored. An unrelated exception
-    # would propagate; never use blanket suppression for unexpected failures.
-    with suppress(FileNotFoundError):
-        events.append("attempt:optional-cache")
-        raise FileNotFoundError("optional cache not found")
-    events.append("continue:without-cache")
+    # An optional cache file may already be absent. That is not a failure.
+    # Use a fresh temporary directory so the demo is deterministic and never
+    # touches user files. Do not manufacture an error with 'raise' here.
+    with TemporaryDirectory(prefix="context-suppress-demo-") as directory:
+        missing_cache = Path(directory) / "optional-cache.txt"
+        # Only FileNotFoundError is ignored. PermissionError and other
+        # unexpected failures are still propagated to the caller.
+        with suppress(FileNotFoundError):
+            events.append("attempt:optional-cache")
+            missing_cache.unlink()  # Raises FileNotFoundError for a missing path.
+        events.append("continue:without-cache")
     return events
 
 
