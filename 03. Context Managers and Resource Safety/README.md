@@ -212,24 +212,7 @@ In the minimal example, `__exit__()` has no explicit `return` statement, so Pyth
 
 **Important boundary:** if `__enter__()` itself raises, that manager's `__exit__()` is **not called**. An implementation that partially acquires resources during entry must account for that possibility.
 
-### Type hints in the extended example
-
-[`examples/custom_manager.py`](examples/custom_manager.py) defines a **separate, more capable** `MyContextManager` for nested contexts, event logs, and selective exception suppression. Its methods use type hints, such as:
-
-```python
-# Example of a typed signature; the executable implementation is in custom_manager.py.
-from types import TracebackType
-
-def __exit__(
-    self,
-    exc_type: type[BaseException] | None,
-    exc_value: BaseException | None,
-    traceback: TracebackType | None,
-) -> bool:
-    ...
-```
-
-Here `| None` expresses a union type, and `-> bool` describes the expected return type. **These annotations are not enforced automatically by the Python interpreter.** The minimal example avoids annotations to make the lifecycle easy to follow.
+The extended `MyContextManager` in Section 5 is defined in a **different module** with extra constructor arguments. It is the version used by `run_exception()` and `run_nested()`; the minimal class here has no `suppress_type` parameter. The next section introduces its code in full before using it.
 
 ### Context-manager lifecycle diagram
 
@@ -255,48 +238,226 @@ sequenceDiagram
 
 The diagram describes the general protocol, including real resource managers. The minimal printing-only example has no resource to acquire or release.
 
-## 5. Exceptions: propagate or suppress?
+## 5. The extended `MyContextManager`: reading real Python code
 
-This is the biggest difference from ordinary C# `using`. In [`custom_manager.py`](examples/custom_manager.py), `MyContextManager` optionally suppresses **only** `ValueError` when configured:
+The minimal manager above explains the protocol. Now examine the **actual class** from [`examples/custom_manager.py`](examples/custom_manager.py), which also records events and can suppress one configured exception type. The file remains the executable reference; the same class is included here so you can understand it **before** running the demo.
+
+### 5.1 The complete class from the demo
 
 ```python
-from examples.custom_manager import MyContextManager
+from __future__ import annotations
 
-events: list[str] = []
+from types import TracebackType
 
-try:
-    with MyContextManager("guard", events, suppress_type=ValueError):
-        raise ValueError("recoverable")
-except ValueError:
-    events.append("caught")
 
-print(events)
+class MyContextManager:
+    """Log __enter__/__exit__ calls and optionally suppress one exception type."""
+
+    def __init__(
+        self,
+        name: str,
+        events: list[str],
+        suppress_type: type[Exception] | None = None,
+    ) -> None:
+        self.name = name
+        self.events = events
+
+        # suppress_type is OUR optional constructor parameter, not a Python
+        # keyword. Passing suppress_type=ValueError stores the ValueError
+        # CLASS (not ValueError("message"), which would be an instance).
+        # None means no exception type is allowed to be suppressed.
+        self.suppress_type = suppress_type
+
+    def __enter__(self) -> str:
+        # 'as resource' receives THIS return value, not necessarily 'self'.
+        self.events.append(f"enter:{self.name}")
+        return f"resource:{self.name}"
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        exc_traceback: TracebackType | None,
+    ) -> bool:
+        # Important: there is no "catch" statement inside this method.
+        # When code inside 'with' raises an exception, Python's 'with'
+        # mechanism AUTOMATICALLY calls __exit__ BEFORE the outer
+        # 'except ValueError:' handler gets a chance to run.
+        #
+        # For 'raise ValueError("demo failure")', Python supplies:
+        #   exc_type      -> ValueError (the exception CLASS)
+        #   exc_value     -> ValueError("demo failure") (the exception OBJECT)
+        #   exc_traceback -> the traceback describing where it happened
+        # On normal exit, all three are None.
+        #
+        # Python's inline conditional expression:
+        #     value_if_true if condition else value_if_false
+        # is similar to C#'s "condition ? value_if_true : value_if_false".
+        #
+        # The next line is equivalent to:
+        #     if exc_type is not None:
+        #         label = exc_type.__name__  # e.g. "ValueError"
+        #     else:
+        #         label = "none"
+        #
+        # '__name__' gives the NAME of the exception class (not its message).
+        # "none" is a string for logging; None is Python's null-like value.
+        label = exc_type.__name__ if exc_type is not None else "none"
+
+        # f"..." is Python string interpolation, like C# $"...".
+        # For self.name="guard" and label="ValueError", this produces
+        # the string "exit:guard:ValueError".
+        # list.append(value) adds an item, like List<T>.Add(value) in C#.
+        # This is LOGGING ONLY: it neither catches nor suppresses the error.
+        self.events.append(f"exit:{self.name}:{label}")
+
+        # Python decides what happens NEXT based on this return value:
+        #   True  -> the 'with' statement suppresses the pending exception;
+        #            execution continues AFTER the 'with' block, so the
+        #            outer 'except ValueError:' is NOT executed.
+        #   False -> Python propagates the exception, allowing the outer
+        #            'except ValueError:' to catch it.
+        #
+        # Example: if suppress_type=ValueError and the body raises ValueError,
+        # all three checks below are True, so __exit__ returns True.
+        # We restrict suppression to the configured class (and subclasses).
+        return (
+            # Did an exception occur in the body of 'with'?
+            exc_type is not None
+            # Did the caller configure a type to suppress?
+            and self.suppress_type is not None
+            # Is the raised exception of that class or one of its subclasses?
+            and issubclass(exc_type, self.suppress_type)
+        )
 ```
 
-**Python syntax note — `suppress_type=ValueError`:** `suppress_type` is a **keyword argument** to our own `MyContextManager.__init__()` constructor, not a Python keyword or built-in suppression feature. The parameter is declared as `suppress_type: type[Exception] | None = None`. Passing `ValueError` passes the **exception class itself**, comparable to `typeof(ArgumentException)` in C#, not an exception instance like `ValueError("message")`. The constructor stores it in `self.suppress_type`. Later, `__exit__()` calls `issubclass(exc_type, self.suppress_type)` to decide whether to return `True` and suppress a matching exception (including subclasses). Omitting the argument or passing `None` means no suppression. The **`__exit__()` return value**, not the argument by itself, determines whether Python suppresses the exception.
+The code above **defines a class**; it does not run a demonstration until you create an instance and use it in `with`. Read the following explanations in order.
 
-**Python syntax note — `try/except` is the C# `try/catch` equivalent.** Python's `try:` starts a protected block, `raise ValueError("recoverable")` throws an exception (like C# `throw new ArgumentException("recoverable")`), and `except ValueError:` catches that exception type (like C# `catch (ArgumentException)`). Python uses **`except`**, not `catch`; `finally:` exists in both languages for cleanup.
+### 5.2 `__init__()`: constructor, keyword arguments and type hints
 
-The unusual part of this example is **not `try/except`**: the `with` block wraps the `raise`, and `MyContextManager.__exit__()` returns `True` for `ValueError`. That **suppresses the exception before it reaches `except ValueError:`**. If you use `suppress_type=None`, the manager instead lets the exception propagate and the `except` block appends `"caught"`.
-
-**Expected output:** the `except` branch is **not** executed:
+Start here:
 
 ```text
-['enter:guard', 'exit:guard:ValueError']
+def __init__(self, name: str, events: list[str],
+             suppress_type: type[Exception] | None = None) -> None:
+    self.name = name
+    self.events = events
+    self.suppress_type = suppress_type
 ```
 
-The manager's `__exit__` returns `True` because the exception type matches. Python suppresses the pending exception and continues **after** the `with` statement. It does **not** resume the remaining statements *inside* the block.
-
-Change `suppress_type=ValueError` to `suppress_type=None`, and the exception propagates to the surrounding `except`. An unrelated `RuntimeError` also propagates even when `ValueError` is allowed.
-
-| Exit scenario | `__exit__` receives | Result of `__exit__` |
+| Python syntax | Meaning | Familiar C# concept |
 |---|---|---|
-| Normal completion | `(None, None, None)` | Ignored; continue |
-| `return` or `break` inside the body | `(None, None, None)` | Ignored; perform the exit |
-| Body raises, returns `False` / `None` | Exception information | **Propagate** the exception |
-| Body raises, returns `True` | Exception information | **Suppress** the exception |
-| `__enter__` raises | `__exit__` **not called** for that manager | Exception propagates unless handled elsewhere |
-| `__exit__` itself raises | Original exception may become its `__context__` | New cleanup exception propagates |
+| `__init__(self, ...)` | Initializes a newly constructed instance; `self` is that instance | Constructor and `this` |
+| `name: str` | `name` is expected to be a string | `string name` |
+| `events: list[str]` | A mutable list of strings; `: list[str]` is a type hint | `List<string> events` |
+| `suppress_type=...` | An **argument name** chosen by this class, not a Python keyword | Named argument |
+| `type[Exception] | None` | An exception **class** or `None`; `|` denotes a union in a type annotation | `Type?` |
+| `= None` | Parameter's default value when the caller does not provide it | Default parameter value `= null` |
+| `-> None` | Return type hint for a function that has no useful return value | `void` |
+| `self.suppress_type = suppress_type` | Store the argument as an **instance attribute** | Assigning to a field/property |
+
+**Pay attention to the type being passed.** `suppress_type=ValueError` passes the *class object* `ValueError`, comparable to `suppressType: typeof(ArgumentException)` in C#. `ValueError("problem")` creates an *exception instance*: that is different. Python's classes are themselves objects, so no `typeof` operator is required here.
+
+Unlike C#'s compiler-enforced types, these annotations are **not runtime validation**. You can omit `suppress_type` entirely and it defaults to `None`, meaning “suppress no exception types”.
+
+### 5.3 `__enter__()`: what is returned by `as`?
+
+The demo's `__enter__() -> str` records `enter:guard` and returns the string `"resource:guard"`, **not `self`**. Therefore, `with MyContextManager("guard", events) as resource:` assigns that **string** to `resource`. This intentionally differs from the first, printing-only manager in Section 4.
+
+Two additional Python features appear here:
+
+- `f"enter:{self.name}"` is an **f-string** (string interpolation), analogous to C# `$"enter:{name}"`. Text inside `{...}` is evaluated and inserted.
+- `self.events.append(value)` adds an element to the list, analogous to C# `events.Add(value)`. It is only **event logging**; it does not catch exceptions or release resources.
+
+### 5.4 `__exit__()`: conditional expression, class names and suppression
+
+On normal exit, Python passes three `None` values. When the `with` body executes `raise ValueError("demo failure")`, Python automatically calls:
+
+```text
+__exit__(
+    exc_type=ValueError,
+    exc_value=ValueError("demo failure"),
+    exc_traceback=<traceback object>
+)
+```
+
+These are **illustrative values**; this is not a Python call you write manually. Importantly, `__exit__()` does **not contain an `except` block**. The Python interpreter forwards the exception to the context-manager protocol before any outer `except` gets to handle it.
+
+The first executable statement inside the demo's `__exit__()` is:
+
+```python
+# Illustrate the expression with a real exception class.
+exc_type = ValueError
+label = exc_type.__name__ if exc_type is not None else "none"
+print(label)
+```
+
+**Expected output:** `ValueError`.
+
+- `A if condition else B` is Python's **conditional expression**, equivalent to C# `condition ? A : B`. Here it is equivalent to `if exc_type is not None: label = exc_type.__name__`, otherwise `label = "none"`.
+- `is not None` checks identity against Python's null-like singleton `None`; it is similar in intent to C# `!= null`.
+- `exc_type.__name__` returns the **class name** (such as `"ValueError"`), not the exception message. For a normal exit we use the log string `"none"`.
+- `self.events.append(f"exit:{self.name}:{label}")` builds a formatted string and appends it to the event list. For the `guard` manager and `ValueError`, it records `"exit:guard:ValueError"`. **Recording this event does not suppress anything.**
+
+The **only part that decides suppression** is the final boolean `return`:
+
+```text
+return (
+    exc_type is not None
+    and self.suppress_type is not None
+    and issubclass(exc_type, self.suppress_type)
+)
+```
+
+Read this **top to bottom**: (1) an exception occurred; (2) the caller configured an allowed exception class; (3) `issubclass(actual_type, allowed_type)` checks whether the actual exception class equals or inherits from the configured class. `and` short-circuits: if an earlier condition is false, later conditions are skipped. The expression itself evaluates to `True` or `False`.
+
+| Case | Configured `suppress_type` | Actual `exc_type` | `__exit__()` returns | Next step |
+|---|---|---|---|---|
+| Matching exception | `ValueError` | `ValueError` | `True` | Python **suppresses** the error |
+| No suppression configured | `None` | `ValueError` | `False` | Python propagates to outer `except` |
+| Different exception | `ValueError` | `RuntimeError` | `False` | Python propagates the error |
+| Normal exit | `ValueError` | `None` | `False` | Exit completes normally; return value is ignored |
+
+C# comparison: `issubclass(actual, allowed)` is conceptually like `allowed.IsAssignableFrom(actual)` using `System.Type` values. Python's `return True` does **not mean “we wrote a catch here”**: it tells the interpreter that the **pending** exception from the `with` body was handled by the context manager.
+
+### 5.5 `run_exception()`: full execution trace
+
+The executable demonstration is [`run_exception(suppress)`](examples/custom_manager.py). Run **both paths**:
+
+```python
+from examples.custom_manager import run_exception
+
+print("suppress=False:", run_exception(False))
+print("suppress=True: ", run_exception(True))
+```
+
+**Expected output:**
+
+```text
+suppress=False: ['enter:guard', 'body:raise', 'exit:guard:ValueError', 'caught:ValueError', 'after:with']
+suppress=True:  ['enter:guard', 'body:raise', 'exit:guard:ValueError', 'after:with']
+```
+
+Inside `run_exception()`, Python performs the following steps:
+
+1. `try:` begins the protected region (**C# `try`**). The argument expression `ValueError if suppress else None` is another conditional expression: the Boolean `suppress` selects which **class**, if any, is stored by the constructor.
+2. `with MyContextManager(...)` invokes `__enter__()` and appends `enter:guard`.
+3. `events.append("body:raise")` records progress; `raise ValueError("demo failure")` then **throws** the exception (**C# `throw new ArgumentException(...)`**).
+4. **Before reaching `except`**, Python automatically invokes `__exit__(ValueError, exception, traceback)` and records `exit:guard:ValueError`.
+5. If `__exit__()` returns **`True`**, Python suppresses the pending exception, so `except ValueError:` **does not run**. If it returns **`False`**, the exception propagates and the outer `except` appends `caught:ValueError` (**C# `catch (ArgumentException)`**).
+6. Both paths continue after the protected region, appending `after:with`. The interpreter **does not resume** the rest of the interrupted `with` body.
+
+The `try/except` statement corresponds to C# `try/catch`. Python also has `finally:` (similar to C# `finally`) and `raise` for throwing. **Only the return value from `__exit__()` determines the context-manager suppression here**, not `suppress_type` by itself.
+
+### 5.6 Exit behaviors and failure boundary
+
+| Exit scenario | Arguments received by `__exit__` | Outcome |
+|---|---|---|
+| Normal completion / early `return` or `break` | `(None, None, None)` | Cleanup runs; return value ignored |
+| Body raises; `__exit__` returns `False` / `None` | Exception information | Exception propagates |
+| Body raises; `__exit__` returns `True` | Exception information | Exception is suppressed |
+| `__enter__` raises | This manager's `__exit__` is **not called** | Failed entry must clean up its own partial work |
+| `__exit__` itself raises | Cleanup error | New exception propagates; prior one may be accessible via `__context__` |
 
 ```mermaid
 flowchart TD
@@ -313,7 +474,7 @@ flowchart TD
     G --> L["Continue normal control flow"]
 ```
 
-**Production warning:** accidentally returning `True` from a logging or metrics manager can hide defects and give callers a false success signal. Prefer `False` unless suppression is intentional, narrowly scoped, and documented.
+**Production rule:** a metrics or logging manager should normally return `False`. Never hide unexpected failures by casually returning `True`; suppress only the intended exception classes. The demo also contains `FailingEnter`, which shows that when `__enter__()` fails, its own `__exit__()` never runs.
 
 ## 6. Nesting and reverse-order release (LIFO)
 
