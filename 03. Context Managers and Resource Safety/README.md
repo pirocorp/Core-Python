@@ -720,7 +720,7 @@ C# `foreach` can dispose its enumerator and execute pending iterator `finally` b
 The same file demonstrates two built-in managers. First, consider **why** `suppress()` is useful: an optional cache might already have been removed, and cleaning it up should not fail merely because the file is missing.
 
 ```python
-from contextlib import suppress, nullcontext
+from contextlib import suppress
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -731,16 +731,12 @@ with TemporaryDirectory() as directory:
         missing_cache.unlink()  # Raises FileNotFoundError if absent.
 
 print("Optional cleanup completed")
-
-with nullcontext("already available") as resource:
-    print(resource)
 ```
 
 **Expected output:**
 
 ```text
 Optional cleanup completed
-already available
 ```
 
 **What happens, step by step?**
@@ -758,7 +754,51 @@ already available
 
 **C# nuance:** the Python `unlink()` example behaves differently from `System.IO.File.Delete()`, which normally does **not** throw simply because its target does not exist. The comparison above is about targeted exception handling, **not identical missing-file behavior** between these APIs.
 
-**What about `nullcontext()`?** `nullcontext(value)` performs no acquisition or cleanup but returns `value` on entry. It is useful when a caller already owns a resource or when management is optional. In `run_optional(enabled)`, the demo uses `manager = traced_resource("optional", events) if enabled else nullcontext("direct")`: a Python conditional expression that selects a manager and uses a **single common `with` body**.
+### Why `nullcontext()` is useful: adapt a value without taking ownership
+
+**Key idea: `nullcontext()` adapts an already available value to the Context Manager interface without taking ownership of the resource.** It returns the supplied object from `__enter__()` and performs no cleanup in `__exit__()`.
+
+This small standalone example technically works, but adds no value by itself: `with nullcontext("already available") as resource: print(resource)` is effectively just `resource = "already available"; print(resource)`. The point is **interface compatibility** when one code path needs to manage a resource and another must leave it under the caller's ownership.
+
+Consider a stream that the caller may already own:
+
+```python
+from contextlib import nullcontext
+from io import StringIO
+
+def read_line(stream: StringIO, close_when_done: bool) -> str:
+    # Caller-owned stream: adapt to 'with' without closing it.
+    # Function-owned stream: use its real context manager to close on exit.
+    manager = stream if close_when_done else nullcontext(stream)
+
+    with manager as reader:
+        return reader.readline().strip()
+
+external = StringIO("Hello\n")
+print(read_line(external, close_when_done=False))
+print("External closed:", external.closed)
+
+internal = StringIO("World\n")
+print(read_line(internal, close_when_done=True))
+print("Internal closed:", internal.closed)
+```
+
+**Expected output:**
+
+```text
+Hello
+External closed: False
+World
+Internal closed: True
+```
+
+- When `close_when_done=False`, `nullcontext(stream)` returns the **existing stream** for the `as reader` variable without calling `stream.close()`. The caller retains ownership and must eventually close it.
+- When `close_when_done=True`, the real stream context manager runs its own `__exit__()`, **closing the stream** when the block ends, including on exceptions.
+- Both paths execute **exactly the same `with` body**, avoiding duplicate work logic. This example assumes that the supplied `StringIO` supports the context-manager protocol.
+
+**C# mental model:** `Task.FromResult(value)` adapts an already available value to a `Task<T>`-returning API; `nullcontext(value)` adapts a value to a **context-manager API**. Both are adapter-like conveniences, **but `nullcontext` is not asynchronous and does not create a task**. It also does not own, acquire or dispose of the resource.
+
+In the original runnable `examples/contextlib_tools.py`, `run_optional(enabled)` uses `manager = traced_resource("optional", events) if enabled else nullcontext("direct")`. The conditional expression chooses between real context management and a no-op manager, so both paths share a **single `with` block**.
 
 Run both optional-resource paths from the original demo:
 
