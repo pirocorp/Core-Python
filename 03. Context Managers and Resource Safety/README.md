@@ -566,11 +566,13 @@ print(events)
 
 Read the new syntax in the order Python executes it:
 
-1. `@contextmanager` is a **decorator** (the `@` syntax). It wraps the generator function so that it supports the same `with` protocol. You will implement decorators yourself in Lesson 04.
+1. `@contextmanager` is a **decorator** (the `@` syntax). It wraps a generator function in an object that provides the `__enter__()` / `__exit__()` protocol automatically. **You do not implement either special method yourself.** You will implement decorators directly in Lesson 04.
 2. `def traced_resource(name: str, events: list[str]) -> Iterator[str]:` declares the generator function. `Iterator[str]` is a **type hint** for the values it yields. As in the previous class, annotations are not automatically enforced at runtime.
 3. `events.append(f"acquire:{name}")` runs when entering the `with` block. The body before `yield` is **setup**.
 4. `yield f"resource:{name}"` is **not a normal `return`**. It pauses the generator and sends the string to the `as resource` variable in the outer `with` block. The caller now executes its body.
 5. On exit, the generator resumes at the suspended `yield`. The `finally:` block appends the release event, including when the caller's body raises.
+
+**What does the `@` actually do?** The decoration `@contextmanager` above `def traced_resource(...):` is shorthand for first defining that generator function and then assigning `traced_resource = contextmanager(traced_resource)`. The decorator transforms the **function**, but does **not** acquire resources at import time. Its setup code runs only when the resulting manager is **entered** by `with`. The `yield` provides the `as` value, and the code after `yield` handles the exit. Merely returning a generator without the decorator would **not** make it usable with `with`.
 
 **C# comparison:** imagine a helper that performs setup, invokes the user action, and runs `Dispose()` in `finally`. The Python `yield` marks the handoff to the caller's `with` body. Unlike a normal `return`, the generator continues after the body completes.
 
