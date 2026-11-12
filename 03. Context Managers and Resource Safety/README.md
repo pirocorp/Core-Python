@@ -1051,6 +1051,49 @@ All examples below refer to the real [`examples/async_managers.py`](examples/asy
 
 ### 9.1 `AsyncConnection`: the class-based async manager
 
+**This is the complete `AsyncConnection` class from `examples/async_managers.py`**, followed by the real `run_connection()` function. Nothing essential is hidden in the imported demo:
+
+```python
+import asyncio
+from types import TracebackType
+
+class AsyncConnection:
+    """An async context manager with awaited acquisition and release."""
+
+    def __init__(self, name: str, events: list[str]) -> None:
+        self.name = name
+        self.events = events
+
+    async def __aenter__(self) -> str:
+        await asyncio.sleep(0)  # Simulate non-blocking I/O on acquisition.
+        self.events.append(f"open:{self.name}")
+        return self.name
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        exc_traceback: TracebackType | None,
+    ) -> bool:
+        await asyncio.sleep(0)  # Simulate non-blocking I/O on release.
+        self.events.append(f"close:{self.name}")
+        return False  # Propagate any body exception.
+
+async def run_connection() -> list[str]:
+    events: list[str] = []
+    async with AsyncConnection("db", events) as name:
+        events.append(f"use:{name}")
+    return events
+
+print(asyncio.run(run_connection()))
+```
+
+**Expected output:** `['open:db', 'use:db', 'close:db']`.
+
+`__init__()` stores the name and shared event list. `async def __aenter__()` waits for simulated acquisition, records `open:db`, and returns the string `"db"` to the `as name` variable. The `async with` body appends `use:db`. The `async def __aexit__()` method then awaits simulated cleanup, records `close:db` and returns **`False`**, meaning that any pending exception from the body is **not suppressed**.
+
+The two `await asyncio.sleep(0)` calls **do not connect to a database**; they only demonstrate asynchronous suspension. For this same scenario, the shorter example below shows how your application would consume the class using `async with`.
+
 ```python
 import asyncio
 from examples.async_managers import AsyncConnection
