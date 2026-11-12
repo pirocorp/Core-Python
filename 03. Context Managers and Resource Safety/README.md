@@ -847,6 +847,37 @@ C# `foreach` can dispose its enumerator and execute pending iterator `finally` b
 
 **One technical precision:** a Python generator object **is** an iterator. It is not necessarily *used to iterate through a collection*: here its **suspend/resume behavior** implements a resource scope. A successful `@contextmanager` entry must reach **exactly one `yield`**, not an arbitrary sequence of yielded values. Missing the yield or trying to yield again during exit raises a `RuntimeError`, as discussed above.
 
+### 7.1.2 Normal and exceptional paths in the actual `run_traced()` demo
+
+The `examples/contextlib_tools.py` demo invokes `traced_resource()` twice, once normally and once with a body exception. The exact `run_traced()` function is:
+
+```python
+from examples.contextlib_tools import traced_resource
+
+def run_traced(fail: bool = False) -> list[str]:
+    events: list[str] = []
+    try:
+        with traced_resource("cache", events) as resource:
+            events.append(f"use:{resource}")
+            if fail:
+                raise ValueError("work failed")
+    except ValueError:
+        events.append("caught:ValueError")
+    return events
+
+print("normal:", run_traced())
+print("failure:", run_traced(True))
+```
+
+**Expected output:**
+
+```text
+normal: ['acquire:cache', 'use:resource:cache', 'release:cache']
+failure: ['acquire:cache', 'use:resource:cache', 'release:cache', 'caught:ValueError']
+```
+
+Here `fail: bool = False` is a parameter with a default value. `if fail:` conditionally raises `ValueError` **inside** the managed body. The generator-based manager executes `finally` and appends `release:cache` **before** the outer `except ValueError:` appends `caught:ValueError`. That ordering is the resource-safety guarantee; `@contextmanager` itself is explained as a decorator in Lesson 04.
+
 ### 7.2 `suppress`, `nullcontext` and another conditional expression
 
 The same file demonstrates two built-in managers. First, consider **why** `suppress()` is useful: an optional cache might already have been removed, and cleaning it up should not fail merely because the file is missing.
@@ -885,6 +916,41 @@ Optional cleanup completed
 **Practical shortcut:** for this *specific* single-file deletion, `Path.unlink(missing_ok=True)` already means “do not fail when the file does not exist”, so it is usually clearer than `suppress(FileNotFoundError)`. We use the context manager here to teach **general selective exception suppression**, useful when an operation has no equivalent `missing_ok` option. Avoid `suppress(Exception)`: it can hide genuine defects.
 
 **C# nuance:** the Python `unlink()` example behaves differently from `System.IO.File.Delete()`, which normally does **not** throw simply because its target does not exist. The comparison above is about targeted exception handling, **not identical missing-file behavior** between these APIs.
+
+### The real `run_suppress()` demonstration
+
+The independent temporary-file example above teaches the behavior. The actual `run_suppress()` function in `examples/contextlib_tools.py` uses the **same file operation** but records its progress in an event list:
+
+```python
+from contextlib import suppress
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+def run_suppress() -> list[str]:
+    events: list[str] = []
+    # An optional cache file may already be absent. That is not a failure.
+    # Use a fresh temporary directory so the demo is deterministic and never
+    # touches user files. Do not manufacture an error with 'raise' here.
+    with TemporaryDirectory(prefix="context-suppress-demo-") as directory:
+        missing_cache = Path(directory) / "optional-cache.txt"
+        # Only FileNotFoundError is ignored. PermissionError and other
+        # unexpected failures are still propagated to the caller.
+        with suppress(FileNotFoundError):
+            events.append("attempt:optional-cache")
+            missing_cache.unlink()  # Raises FileNotFoundError for a missing path.
+        events.append("continue:without-cache")
+    return events
+
+print(run_suppress())
+```
+
+**Expected output:**
+
+```text
+['attempt:optional-cache', 'continue:without-cache']
+```
+
+The `attempt` event is appended **before** `unlink()` raises, and `continue` is appended **after** the exception is suppressed. It is not a fabricated `raise`; the code operates on a safely isolated missing file.
 
 ### Why `nullcontext()` is useful: adapt a value without taking ownership
 
