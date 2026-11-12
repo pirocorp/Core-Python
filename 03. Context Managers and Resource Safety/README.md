@@ -581,6 +581,140 @@ A generator-based manager must **yield exactly once** per entry. Missing `yield`
 
 **Exception detail:** when the body throws, `contextlib` re-injects the exception at the suspended `yield`. `finally` still executes. If you catch the exception *inside* the generator and finish without re-raising, you can unintentionally suppress it. Ordinary cleanup should re-raise or simply use `try/finally` as the example does.
 
+### 7.1.1 Mental model for C# developers: iterator + resource scope
+
+The code above combines **two separate ideas**:
+
+1. **Python generator function** — closely analogous to a **C# iterator method** that uses `yield return`. Both suspend execution and retain their state between resumptions.
+2. **Context manager** — conceptually similar to a C# `using` / `IDisposable` resource scope. It controls the lifetime of **one use of a resource**.
+
+The combination can be remembered as:
+
+> **C# `yield return` + C# `using` / `IDisposable` ≈ Python generator + `@contextmanager`.** This is a **mental model, not a language-level equivalence**. The decorator's mechanics belong to Lesson 04.
+
+#### First, compare ordinary iteration
+
+**Python generator function:**
+
+```python
+def numbers():
+    print("Start")
+    yield 1
+    yield 2
+    print("End")
+
+for number in numbers():
+    print(number)
+```
+
+**C# iterator method:**
+
+```csharp
+using System;
+using System.Collections.Generic;
+
+IEnumerable<int> Numbers()
+{
+    Console.WriteLine("Start");
+    yield return 1;
+    yield return 2;
+    Console.WriteLine("End");
+}
+
+foreach (int number in Numbers())
+{
+    Console.WriteLine(number);
+}
+```
+
+Both examples produce:
+
+```text
+Start
+1
+2
+End
+```
+
+- **Python `yield 1` versus C# `yield return 1`:** each supplies a value and **suspends the current execution**, preserving local state until the next advancement.
+- Calling `numbers()` produces a **generator object**, which is also a Python **iterator**. The body begins on the first advancement (`next()` or `for`), not when the function is called. The C# iterator method likewise defers execution of its body until the sequence is enumerated.
+- `for` in Python and `foreach` in C# **consume successive values**. A normal generator/iterator may yield multiple times to produce a sequence.
+
+#### Then, use that suspension point for a resource scope
+
+Our **actual `traced_resource()` demo** above has just **one `yield`**:
+
+```text
+acquire:cache
+    yield "resource:cache"    <-- suspend and hand the resource to the with body
+    with body records "use:resource:cache"
+release:cache                 <-- resume generator and execute finally
+```
+
+The arrow is **illustrative**, not an instruction to execute. The precise control flow is:
+
+```mermaid
+flowchart TD
+    A["with enters context manager"] --> B["Advance generator: code before yield"]
+    B --> C["Acquire / prepare resource"]
+    C --> D["yield resource: suspend generator"]
+    D --> E["Execute body of with"]
+    E --> F["Leave with: resume generator"]
+    F --> G["finally: release resource"]
+    G --> H["Continue after with"]
+```
+
+**Expected event order:** `acquire:cache` → `use:resource:cache` → `release:cache`.
+
+A normal C# iterator passes values to a **sequence consumer** such as `foreach`. Here, the Python generator's `yield` passes **one resource value to one `with` block**. The context manager manages the resumption after that block; callers do **not** manually iterate over the resource manager.
+
+The closest **C# resource-lifetime analogy** is a different construct from the C# iterator:
+
+```csharp
+using System;
+
+using (var manager = new TracedResource("cache"))
+{
+    Console.WriteLine($"use:{manager.Resource}");
+}
+
+public sealed class TracedResource : IDisposable
+{
+    private readonly string _name;
+
+    public TracedResource(string name)
+    {
+        _name = name;
+        Console.WriteLine($"acquire:{name}");
+    }
+
+    public string Resource => $"resource:{_name}";
+
+    public void Dispose()
+    {
+        Console.WriteLine($"release:{_name}");
+    }
+}
+```
+
+**Expected output:**
+
+```text
+acquire:cache
+use:resource:cache
+release:cache
+```
+
+This C# code models **deterministic resource lifetime**, not the generator's implementation. It intentionally uses `IDisposable` rather than pretending `yield return` directly implements `using`.
+
+#### The critical exception-handling difference
+
+If the Python `with` body raises, `contextlib` resumes the suspended generator **by injecting the exception at its `yield` point**. That means its `try/finally` executes cleanup *before* the exception propagates to an outer `except`. A generator can also deliberately **catch** that injected exception, in which case context-manager suppression is possible; see Section 5 for the consequences.
+
+C# `foreach` can dispose its enumerator and execute pending iterator `finally` blocks when enumeration ends or is interrupted, but it does **not** inject a consumer exception into the iterator's suspended `yield return` in this way. And `IDisposable.Dispose()` does not have the Python `__exit__()` suppression-return mechanism.
+
+**One technical precision:** a Python generator object **is** an iterator. It is not necessarily *used to iterate through a collection*: here its **suspend/resume behavior** implements a resource scope. A successful `@contextmanager` entry must reach **exactly one `yield`**, not an arbitrary sequence of yielded values. Missing the yield or trying to yield again during exit raises a `RuntimeError`, as discussed above.
+
 ### 7.2 `suppress`, `nullcontext` and another conditional expression
 
 The same file demonstrates two built-in managers:
