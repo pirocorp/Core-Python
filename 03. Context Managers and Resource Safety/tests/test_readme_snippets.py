@@ -23,7 +23,7 @@ class ReadmeSnippetTests(unittest.TestCase):
     def test_documented_python_snippets_are_runnable_independently(self) -> None:
         markdown = README.read_text(encoding="utf-8")
         snippets = list(
-            re.finditer(r"^\`\`\`python\n([\s\S]*?)^\`\`\`", markdown, re.MULTILINE)
+            re.finditer(r"^`{3}python\n([\s\S]*?)^`{3}", markdown, re.MULTILINE)
         )
         self.assertGreater(len(snippets), 0, "README must include Python examples")
 
