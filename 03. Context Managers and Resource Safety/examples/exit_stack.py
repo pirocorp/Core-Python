@@ -7,6 +7,7 @@ from contextlib import ExitStack, contextmanager
 
 @contextmanager
 def acquire(name: str, events: list[str], fail: bool = False) -> Iterator[str]:
+    # This records the *attempt*; a later failure may prevent acquisition.
     events.append(f"acquire:{name}")
     if fail:
         # No resource was acquired by this manager; its generator never
