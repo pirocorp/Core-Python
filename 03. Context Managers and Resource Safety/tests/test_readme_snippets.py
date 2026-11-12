@@ -23,7 +23,7 @@ README = LESSON / "README.md"
 class ReadmeSnippetTests(unittest.TestCase):
     def test_local_markdown_links_point_to_existing_files(self) -> None:
         markdown = README.read_text(encoding="utf-8")
-        links = re.findall(r"\\]\\(([^)]+)\\)", markdown)
+        links = re.findall(r"\]\(([^)]+)\)", markdown)
         self.assertGreater(len(links), 0, "README should link to examples")
 
         for link in links:
