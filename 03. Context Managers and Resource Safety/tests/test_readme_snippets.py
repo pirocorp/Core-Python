@@ -55,6 +55,16 @@ class ReadmeSnippetTests(unittest.TestCase):
             ),
             (
                 "contextlib_tools.py",
+                "def run_traced(",
+                "\n\ndef run_suppress(",
+            ),
+            (
+                "contextlib_tools.py",
+                "def run_suppress(",
+                "\n\ndef run_optional(",
+            ),
+            (
+                "contextlib_tools.py",
                 "def run_optional(enabled:",
                 "\n\ndef main()",
             ),
