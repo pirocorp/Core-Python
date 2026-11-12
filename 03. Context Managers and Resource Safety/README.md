@@ -49,7 +49,7 @@ python -m compileall -q examples tests
 python -m unittest discover -s tests -v
 ```
 
-**Expected validation:** all **25 deterministic unit tests** pass. The samples need no network access or external packages. The tests **validate internal Markdown links and execute all 12 standalone Python code blocks in this README**, using temporary input data when a snippet assumes `example.txt` exists. Sample data is written to temporary directories and removed at exit. Python may create local `__pycache__` files when compiling or running the examples.
+**Expected validation:** all **25 deterministic unit tests** pass. The samples need no network access or external packages. The tests **validate internal Markdown links and execute every runnable Python code block in this README independently**, using temporary input data when a snippet assumes `example.txt` exists. Sample data is written to temporary directories and removed at exit. Python may create local `__pycache__` files when compiling or running the examples.
 
 On systems where the Python executable is called `python3` or `py -3`, substitute that launcher consistently. Snippets importing `examples.*` should be run **from this lesson directory**; Python 3 supports importing these modules through an implicit namespace package.
 
@@ -501,9 +501,27 @@ print(events)
 - `with A() as a, B() as b:` is equivalent to nesting `with A() as a:` around `with B() as b:`.
 - An exception in an inner body invokes the inner manager's exit before the outer manager's exit.
 - If an inner manager suppresses an exception, the outer manager normally sees **no exception**; suppression changes what the outer `__exit__` receives.
-- An early `return` still unwinds both managers; `custom_manager.run_early_return()` demonstrates this.
+- The comma in `with ManagerA() as a, ManagerB() as b:` separates two context managers. It behaves like **nested `with` statements**, not parallel execution. The long demonstration splits the expression across lines inside parentheses; Python permits a continued expression inside parentheses without a continuation character.
+- The variables `outer` and `inner` receive the strings returned by the advanced manager's `__enter__()`: `"resource:outer"` and `"resource:inner"`. This explains the `body:resource:outer,resource:inner` event.
+- An early `return` still calls `__exit__()` **before the function actually returns**.
 
-This is the same fundamental resource-unwinding principle you apply with nested C# `using` blocks or scoped disposables.
+Two other paths in `examples/custom_manager.py` demonstrate that last rule and a **failed entry**:
+
+```python
+from examples.custom_manager import run_early_return, run_failed_enter
+
+print("early return:", run_early_return())
+print("failed entry:", run_failed_enter())
+```
+
+```text
+early return: ['enter:early', 'body:return', 'exit:early:none', 'returned']
+failed entry: ['enter:failed', 'caught:RuntimeError']
+```
+
+`FailingEnter.__enter__()` raises `RuntimeError` before returning, so its own `__exit__()` **never executes**, and the `with` body is skipped. Here `except RuntimeError:` is Python's equivalent of a typed C# `catch`.
+
+This is the same LIFO resource-unwinding principle used by nested C# `using` blocks or scoped disposables.
 
 ## 7. `@contextmanager`, generators and optional resources
 
