@@ -53,6 +53,8 @@ python -m unittest discover -s tests -v
 
 On systems where the Python executable is called `python3` or `py -3`, substitute that launcher consistently. Snippets importing `examples.*` should be run **from this lesson directory**; Python 3 supports importing these modules through an implicit namespace package.
 
+**Reading the demo files:** each example ends in `if __name__ == "__main__": main()`. Here the **module-level** variable `__name__` equals `"__main__"` when Python executes the file directly, so its demo runs. When the file is **imported** by another script or a test, that condition is false, preventing unwanted execution. This is similar in purpose to choosing an application entry point in C#. This module variable is a different use of `__name__` from the **exception class attribute** `exc_type.__name__` discussed in Section 5.
+
 ## 3. Reading a file with `with`
 
 A file object is a built-in context manager. Reading a file requires no explicit call to `close()`:
@@ -359,6 +361,8 @@ def __init__(self, name: str, events: list[str],
 **Pay attention to the type being passed.** `suppress_type=ValueError` passes the *class object* `ValueError`, comparable to `suppressType: typeof(ArgumentException)` in C#. `ValueError("problem")` creates an *exception instance*: that is different. Python's classes are themselves objects, so no `typeof` operator is required here.
 
 Unlike C#'s compiler-enforced types, these annotations are **not runtime validation**. You can omit `suppress_type` entirely and it defaults to `None`, meaning “suppress no exception types”.
+
+The class also imports `TracebackType` from Python's `types` module to annotate the exception traceback; this is type information, not code that catches an exception. At the very top, `from __future__ import annotations` postpones type-annotation evaluation (in Python 3.11–3.13 it stores the annotations in string form). It **does not alter execution of `with` or `try/except`**; it lets the same example use type hints consistently across supported Python versions.
 
 ### 5.3 `__enter__()`: what is returned by `as`?
 
