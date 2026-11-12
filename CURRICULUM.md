@@ -17,7 +17,7 @@
 | [01](01.%20CPython%20Memory%20Model%20and%20the%20GIL/README.md) | CPython Memory Model and the GIL | `sys.getrefcount(a)` with aliases, factorial-based CPU-bound thread comparison |
 | [02](02.%20Threads,%20Processes%20and%20Async%20IO/README.md) | Threads, Processes, and Async I/O | OS threads, ThreadPoolExecutor, ProcessPoolExecutor, asyncio, TaskGroup and blocking-I/O pitfalls |
 | [03](03.%20Context%20Managers%20and%20Resource%20Safety/README.md) | Context Managers and Resource Safety | Files, `__enter__` / `__exit__`, exception suppression, `contextlib`, `ExitStack`, async context managers |
-| [04](lessons/04-decorators/README.md) | Decorators, Closures, and Cross-Cutting Concerns | Parameterized decorator factory, nested wrapper, positional/keyword arguments |
+| [04](04.%20Decorators,%20Closures%20and%20Cross-Cutting%20Concerns/README.md) | Decorators, Closures, and Cross-Cutting Concerns | Decorator factories, closure cells, wraps and stacking, ParamSpec typing, sync/async wrappers, method binding, cancellation |
 | [05](lessons/05-abcs-and-duck-typing/README.md) | Abstract Base Classes and Interface-Like Contracts | `Shape(ABC)`, `Circle`, payment gateways |
 | [06](lessons/06-inheritance-and-mro/README.md) | Inheritance, Multiple Inheritance, and MRO | `Animal` / `Dog`, `Bird` / `Flyable` |
 | [07](lessons/07-polymorphism/README.md) | Runtime Polymorphism and Duck Typing | `Bird.speak`, `Duck.speak`, `make_bird_speak` |

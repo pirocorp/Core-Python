@@ -52,7 +52,7 @@ if __name__ == "__main__":
     hello()
 ```
 
-Run from `lessons/04-decorators/`:
+Run from `04. Decorators, Closures and Cross-Cutting Concerns/`:
 
 ```bash
 python examples/function_decorators.py
@@ -423,7 +423,7 @@ Both approaches allow behavior to be added without modifying the wrapped impleme
 
 ## 6. `@contextmanager` and `@asynccontextmanager` — decorators that create resource scopes
 
-[Lesson 03 — Context Managers and Resource Safety](../../03.%20Context%20Managers%20and%20Resource%20Safety/README.md) uses `@contextmanager` and `@asynccontextmanager` to teach resource lifetime. Their behavior inside `with` belongs to that lesson; **this section explains the decorators themselves**: why `@` changes a function, when its code runs, and how the synchronous and asynchronous variants differ.
+[Lesson 03 — Context Managers and Resource Safety](../03.%20Context%20Managers%20and%20Resource%20Safety/README.md) uses `@contextmanager` and `@asynccontextmanager` to teach resource lifetime. Their behavior inside `with` belongs to that lesson; **this section explains the decorators themselves**: why `@` changes a function, when its code runs, and how the synchronous and asynchronous variants differ.
 
 ### 6.1 A decorator transforms the function definition
 
@@ -573,7 +573,7 @@ if __name__ == "__main__":
     print("result:", greet("Ada", punctuation="?"))
 ```
 
-Run from `lessons/04-decorators/`:
+Run from `04. Decorators, Closures and Cross-Cutting Concerns/`:
 
 
 
